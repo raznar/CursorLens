@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+
+# testing
+/coverage
+
+# local data (the SQLite database; SCHEMA.md and query.mjs are committed)
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
+
+# env files
+.env
+.env.local
+.env.*.local
+
+# misc
+.DS_Store
+*.log
+*.pem
+.vscode/*
+!.vscode/extensions.json

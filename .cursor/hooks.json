@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "type": "prompt",
+        "prompt": "Before finishing: review the files changed this session (git status / git diff). If any are under src/lib/cursor, src/db, src/lib/sync, src/components, or src/app, confirm the matching .cursor/skills/*/SKILL.md is updated and, if src/db/schema.ts changed, that `npm run gen:schema-doc` was run to refresh data/SCHEMA.md. Also confirm `npm run verify` passes. If something is missing, do it now; otherwise continue.",
+        "timeout": 60
+      }
+    ]
+  }
+}

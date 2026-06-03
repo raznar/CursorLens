@@ -1,0 +1,19 @@
+---
+description: Keep project skills, SCHEMA.md, and the verify gate current as the codebase evolves.
+alwaysApply: true
+---
+
+# Keep skills current
+
+This repo's knowledge lives in `.cursor/skills/`. Treat skills as living docs.
+
+- Before non-trivial work, read the relevant skill (start with `architecture-overview`).
+  The skill ↔ code-area map is in [AGENTS.md](../../AGENTS.md).
+- When you change behavior or conventions in an area, **update that area's `SKILL.md` in
+  the same change** so it never drifts from the code.
+- If you add a new subsystem, add a new skill and register it in `maintaining-skills` and
+  `AGENTS.md`.
+- If you change the Drizzle schema (`src/db/schema.ts`), run `npm run gen:schema-doc` to
+  refresh `data/SCHEMA.md` (the embedded agent reads it).
+- Before finishing, ensure `npm run verify` is green. It runs `check:skills` (flags skills
+  that reference files which no longer exist) and a `SCHEMA.md` drift check.

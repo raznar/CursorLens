@@ -1,0 +1,1 @@
+ALTER TABLE `saved_reports` ADD `response` text DEFAULT '' NOT NULL;

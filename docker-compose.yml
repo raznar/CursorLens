@@ -1,0 +1,45 @@
+# Cursor Lens — dashboards + ingestion.
+#
+# IMPORTANT: The embedded Ask Agent uses the Cursor SDK's local runtime, which
+# needs Cursor's agent runtime on the host and does NOT run inside this minimal
+# container. This Compose stack is for the read-only dashboards and the data
+# ingestion (cron / Settings "Sync now" / POST /api/sync). To use the chat agent,
+# run the app via `npm run dev` / `npm run start` on a host where Cursor is
+# installed.
+#
+# Values are interpolated from a local `.env` file (copy `.env.example`).
+# Start with:  docker compose up --build
+
+services:
+  cursor-lens:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cursor-lens
+    container_name: cursor-lens
+    ports:
+      - "3000:3000"
+    environment:
+      # Required to save keys in Settings. Generate with: openssl rand -hex 32
+      CURSOR_LENS_SECRET: ${CURSOR_LENS_SECRET:-}
+      # Legacy fallback for existing .env files created before the Cursor Lens rename.
+      ANALYTICS_AGENT_SECRET: ${ANALYTICS_AGENT_SECRET:-}
+      # Admin/Analytics API key (Basic auth) for ingestion. Optional if CURSOR_MOCK=1.
+      CURSOR_ADMIN_API_KEY: ${CURSOR_ADMIN_API_KEY:-}
+      # SDK key for the Ask Agent. The SDK local runtime does not run in this
+      # container, so chat is effectively disabled here (see the note above).
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      # Set to 1 to run against bundled fixtures with no live Cursor key.
+      CURSOR_MOCK: ${CURSOR_MOCK:-0}
+      # Optional logging + base URL overrides.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CURSOR_API_BASE_URL: ${CURSOR_API_BASE_URL:-https://api.cursor.com}
+      # Keep the database inside the persisted volume below.
+      DATA_DIR: /app/data
+    volumes:
+      # Named volume so the SQLite database survives container rebuilds.
+      - cursor-lens-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cursor-lens-data:

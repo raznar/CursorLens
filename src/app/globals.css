@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design tokens. This is the single source of truth for the app's look.
+ * Re-theming = edit these variables, never the components. See `design-system` skill.
+ */
+@layer base {
+  :root {
+    --font-sans:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      sans-serif;
+    --font-mono:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 243 75% 96%;
+    --accent-foreground: 243 75% 35%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 243 75% 59%;
+
+    --chart-1: 243 75% 59%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 27 87% 55%;
+    --chart-4: 286 60% 55%;
+    --chart-5: 199 89% 48%;
+    --chart-6: 340 75% 55%;
+    --chart-7: 142 71% 45%;
+    --chart-8: 47 95% 50%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 224 47% 7%;
+    --foreground: 213 31% 91%;
+
+    --card: 224 41% 10%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 224 41% 10%;
+    --popover-foreground: 213 31% 91%;
+
+    --primary: 243 75% 68%;
+    --primary-foreground: 224 47% 7%;
+
+    --secondary: 223 30% 16%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 223 30% 16%;
+    --muted-foreground: 217 17% 60%;
+
+    --accent: 243 40% 22%;
+    --accent-foreground: 243 75% 85%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 224 47% 7%;
+
+    --border: 223 25% 18%;
+    --input: 223 25% 18%;
+    --ring: 243 75% 68%;
+
+    --chart-1: 243 75% 68%;
+    --chart-2: 173 58% 50%;
+    --chart-3: 27 87% 62%;
+    --chart-4: 286 65% 68%;
+    --chart-5: 199 89% 60%;
+    --chart-6: 340 75% 65%;
+    --chart-7: 142 60% 55%;
+    --chart-8: 47 95% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Recharts: inherit theme colors for axes / grid / tooltips. */
+.recharts-cartesian-axis-tick-value {
+  fill: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+.recharts-cartesian-grid line {
+  stroke: hsl(var(--border));
+}
+
+/* Native scrollbars: hidden but scrollable (wheel / trackpad / keyboard). */
+@layer utilities {
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

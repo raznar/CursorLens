@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+build
+coverage
+drizzle
+data/*.db
+data/*.db-shm
+data/*.db-wal
+package-lock.json
