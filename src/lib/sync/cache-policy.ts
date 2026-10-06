@@ -2,9 +2,14 @@ import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  aiCodeChangeFiles,
+  aiCodeChanges,
+  aiCodeCommits,
   analyticsAgentEdits,
   analyticsAskMode,
   analyticsBugbot,
+  analyticsBugbotReviewFindings,
+  analyticsBugbotReviews,
   analyticsClientVersions,
   analyticsCommands,
   analyticsConversationInsights,
@@ -17,6 +22,9 @@ import {
   analyticsTabs,
   analyticsTopFileExtensions,
   auditLogs,
+  billingGroupDailySpend,
+  billingGroupMembers,
+  billingGroups,
   byUserAgentEdits,
   byUserAskMode,
   byUserClientVersions,
@@ -28,8 +36,11 @@ import {
   byUserTabs,
   byUserTopFileExtensions,
   dailyUsage,
+  directoryGroupMembers,
+  directoryGroups,
   settings,
   spend,
+  syncCoverage,
   syncRunItems,
   syncRuns,
   syncState,
@@ -66,6 +77,16 @@ const INGESTED_TABLES = [
   analyticsConversationInsights,
   analyticsLeaderboard,
   analyticsBugbot,
+  analyticsBugbotReviews,
+  analyticsBugbotReviewFindings,
+  billingGroups,
+  billingGroupMembers,
+  billingGroupDailySpend,
+  directoryGroups,
+  directoryGroupMembers,
+  aiCodeCommits,
+  aiCodeChanges,
+  aiCodeChangeFiles,
   byUserModels,
   byUserAgentEdits,
   byUserTabs,
@@ -104,12 +125,13 @@ export function ingestedCacheReadable(): boolean {
   return readSetting(SETTING_LIVE_CACHE_READY) === "1";
 }
 
-/** Delete all ingested metric tables and reset per-endpoint sync bookkeeping. */
+/** Delete all ingested metric tables and reset per-endpoint sync bookkeeping + coverage. */
 export function purgeIngestedCache(): void {
   for (const table of INGESTED_TABLES) {
     db.delete(table).run();
   }
   db.delete(syncState).run();
+  db.delete(syncCoverage).run();
   writeSetting(SETTING_LIVE_CACHE_READY, "0");
 }
 

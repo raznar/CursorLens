@@ -3,6 +3,8 @@ import { eq, sql } from "drizzle-orm";
 import {
   analyticsAskMode,
   analyticsBugbot,
+  analyticsBugbotReviewFindings,
+  analyticsBugbotReviews,
   analyticsCommands,
   analyticsConversationInsights,
   analyticsMcp,
@@ -10,7 +12,7 @@ import {
   analyticsSkills,
   db,
 } from "@/db";
-import { dayBetween, msBetween, type Range } from "./filters";
+import { dayBetween, dayFromMs, msBetween, type Range } from "./filters";
 import { whenCacheReadable } from "./cache-guard";
 import { type KeyValue, sumBy } from "./transforms";
 
@@ -23,6 +25,15 @@ const EMPTY_FEATURES: FeaturesData = {
   totals: { mcp: 0, commands: 0, skills: 0, askMode: 0 },
   insights: [],
   bugbot: { reviews: 0, issuesTotal: 0, resolvedTotal: 0, bySeverity: [] },
+  bugbotReviews: {
+    reviews: 0,
+    dryRuns: 0,
+    costCents: 0,
+    findings: 0,
+    byResolution: [],
+    costByDay: [],
+    byRepo: [],
+  },
 };
 
 export interface InsightSlice {
@@ -38,6 +49,19 @@ export interface BugbotSummary {
   bySeverity: KeyValue[];
 }
 
+/** From `/analytics/team/bugbot-reviews`: per-review cost + per-finding resolution. */
+export interface BugbotReviewsSummary {
+  reviews: number;
+  dryRuns: number;
+  costCents: number;
+  findings: number;
+  /** Posted findings by resolution status (dry-run findings are "dry run"). */
+  byResolution: KeyValue[];
+  costByDay: Array<{ date: string; cents: number }>;
+  /** Billed cost by repository. */
+  byRepo: KeyValue[];
+}
+
 export interface FeaturesData {
   mcp: KeyValue[];
   commands: KeyValue[];
@@ -47,6 +71,7 @@ export interface FeaturesData {
   totals: { mcp: number; commands: number; skills: number; askMode: number };
   insights: InsightSlice[];
   bugbot: BugbotSummary;
+  bugbotReviews: BugbotReviewsSummary;
 }
 
 const INSIGHT_SLICE_LABELS: Record<string, string> = {
@@ -191,5 +216,67 @@ function getFeaturesLoaded(range: Range): FeaturesData {
         { key: "Low", value: bb.low },
       ],
     },
+    bugbotReviews: bugbotReviewsSummary(range),
+  };
+}
+
+function bugbotReviewsSummary(range: Range): BugbotReviewsSummary {
+  const inRange = msBetween(analyticsBugbotReviews.timestamp, range);
+  const [totals] = db
+    .select({
+      reviews: sql<number>`count(*)`,
+      dryRuns: sql<number>`coalesce(sum(case when ${analyticsBugbotReviews.dry_run} then 1 else 0 end), 0)`,
+      costCents: sql<number>`coalesce(sum(${analyticsBugbotReviews.cost_cents}), 0)`,
+      findings: sql<number>`coalesce(sum(${analyticsBugbotReviews.bugs_found}), 0)`,
+    })
+    .from(analyticsBugbotReviews)
+    .where(inRange)
+    .all();
+
+  const byResolution = db
+    .select({
+      key: sql<string>`case when ${analyticsBugbotReviews.dry_run} then 'dry run' else coalesce(${analyticsBugbotReviewFindings.resolution_status}, 'unknown') end`,
+      value: sql<number>`count(*)`,
+    })
+    .from(analyticsBugbotReviewFindings)
+    .innerJoin(
+      analyticsBugbotReviews,
+      eq(analyticsBugbotReviews.request_id, analyticsBugbotReviewFindings.request_id),
+    )
+    .where(inRange)
+    .groupBy(sql`1`)
+    .all();
+
+  const costByDay = db
+    .select({
+      date: dayFromMs(analyticsBugbotReviews.timestamp),
+      cents: sql<number>`coalesce(sum(${analyticsBugbotReviews.cost_cents}), 0)`,
+    })
+    .from(analyticsBugbotReviews)
+    .where(inRange)
+    .groupBy(dayFromMs(analyticsBugbotReviews.timestamp))
+    .orderBy(dayFromMs(analyticsBugbotReviews.timestamp))
+    .all();
+
+  const byRepo = db
+    .select({
+      key: sql<string>`coalesce(${analyticsBugbotReviews.repo}, 'unknown')`,
+      value: sql<number>`coalesce(sum(${analyticsBugbotReviews.cost_cents}), 0)`,
+    })
+    .from(analyticsBugbotReviews)
+    .where(inRange)
+    .groupBy(analyticsBugbotReviews.repo)
+    .orderBy(sql`coalesce(sum(${analyticsBugbotReviews.cost_cents}), 0) desc`)
+    .limit(10)
+    .all();
+
+  return {
+    reviews: totals?.reviews ?? 0,
+    dryRuns: totals?.dryRuns ?? 0,
+    costCents: totals?.costCents ?? 0,
+    findings: totals?.findings ?? 0,
+    byResolution,
+    costByDay,
+    byRepo,
   };
 }

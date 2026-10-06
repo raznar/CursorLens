@@ -112,7 +112,12 @@ export default function SettingsPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <SyncNowButtons backfillDays={syncConfig.backfillDays} />
+            <SyncNowButtons
+              backfillDays={syncConfig.backfillDays}
+              initialRunning={
+                Boolean(syncStatus.active) || syncStatus.latestRun?.status === "running"
+              }
+            />
             {admin.configured && !config.mock && (
               <form action={clearCachedData}>
                 <button

@@ -8,11 +8,22 @@
 import type { z } from "zod";
 import { toApiDate } from "@/lib/date-range";
 import type { ApiResult, CursorHttp } from "./client";
-import { collectByUserPages, collectPages, hasNextPage, MAX_PAGES } from "./pagination";
+import {
+  collectByUserPages,
+  collectPages,
+  hasNextPage,
+  MAX_PAGES,
+  streamByUserPages,
+  streamPages,
+  type ByUserPageBatch,
+  type PageBatch,
+} from "./pagination";
 import {
   BugbotResponseSchema,
+  BugbotReviewsResponseSchema,
   ConversationInsightsResponseSchema,
   LeaderboardResponseSchema,
+  type BugbotReview,
   type BugbotRow,
   type LeaderboardEntry,
   type Pagination,
@@ -26,9 +37,11 @@ export interface DateRange {
 /** The `include` slices required by the conversation-insights endpoint. */
 export const CONVERSATION_INCLUDE = "intents,complexity,categories,guidanceLevels,workTypes";
 
-const BY_USER_PAGE_SIZE = 200;
-const LEADERBOARD_PAGE_SIZE = 100;
-const BUGBOT_PAGE_SIZE = 100;
+/** Documented maxima: by-user 500 users/page, leaderboard 500, bugbot + bugbot-reviews 250. */
+export const BY_USER_PAGE_SIZE = 500;
+export const LEADERBOARD_PAGE_SIZE = 500;
+export const BUGBOT_PAGE_SIZE = 250;
+export const BUGBOT_REVIEWS_PAGE_SIZE = 250;
 
 /**
  * Fetch a single-request team analytics metric, threading ETag / `If-None-Match`.
@@ -133,6 +146,47 @@ export async function getBugbot(
   });
 }
 
+export interface BugbotReviewsQuery {
+  repo?: string;
+  prNumber?: number;
+  dryRun?: boolean;
+}
+
+/**
+ * Per-review Bugbot analytics (`read:*` scope): posted and dry-run reviews with billed cost
+ * and per-finding resolution. Streamed page by page; shares the team analytics bucket.
+ */
+export function streamBugbotReviews(
+  http: CursorHttp,
+  range: DateRange,
+  opts: BugbotReviewsQuery & { pageSize?: number } = {},
+): AsyncGenerator<PageBatch<BugbotReview>> {
+  const pageSize = opts.pageSize ?? BUGBOT_REVIEWS_PAGE_SIZE;
+  return streamPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: "/analytics/team/bugbot-reviews",
+        group: "analyticsTeam",
+        schema: BugbotReviewsResponseSchema,
+        query: {
+          startDate: toApiDate(range.start),
+          endDate: toApiDate(range.end),
+          repo: opts.repo,
+          prNumber: opts.prNumber,
+          dryRun: opts.dryRun,
+          page,
+          pageSize,
+        },
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.data,
+    getPagination: (d) => d.pagination,
+    pageSize,
+  });
+}
+
 /** By-user envelope shape consumed by the merge loop. */
 interface ByUserEnvelope<R> {
   data: Record<string, R[]>;
@@ -140,9 +194,33 @@ interface ByUserEnvelope<R> {
 }
 
 /**
- * Fetch a by-user metric, following pagination and merging every page's `{ email: rows }`
- * map. `R` (the row type) is supplied by the caller; the response schema validates shape.
+ * Stream a by-user metric one page at a time (each page is a `{ email: rows }` map for a
+ * disjoint set of users). `R` (the row type) is supplied by the caller; the response schema
+ * validates shape.
  */
+export function streamByUserData<R>(
+  http: CursorHttp,
+  path: string,
+  schema: z.ZodTypeAny,
+  range: DateRange,
+  pageSize = BY_USER_PAGE_SIZE,
+): AsyncGenerator<ByUserPageBatch<R>> {
+  return streamByUserPages<R>({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path,
+        group: "analyticsByUser",
+        schema,
+        query: { startDate: toApiDate(range.start), endDate: toApiDate(range.end), page, pageSize },
+      });
+      return res.data as ByUserEnvelope<R>;
+    },
+    pageSize,
+  });
+}
+
+/** Fetch a by-user metric, following pagination and merging every page's map. */
 export async function getByUserData<R>(
   http: CursorHttp,
   path: string,
@@ -161,5 +239,6 @@ export async function getByUserData<R>(
       });
       return res.data as ByUserEnvelope<R>;
     },
+    pageSize,
   });
 }

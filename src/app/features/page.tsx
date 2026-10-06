@@ -1,10 +1,10 @@
-import { Bug, MessageCircle, Plug, Sparkles, Terminal } from "lucide-react";
+import { Bug, DollarSign, MessageCircle, Plug, Sparkles, Terminal } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ChartCard } from "@/components/dashboard/chart-card";
 import { SeriesChart } from "@/components/dashboard/series-chart";
 import { resolveRange } from "@/lib/date-range";
-import { formatCompact, formatPercent } from "@/lib/format";
+import { formatCents, formatCompact, formatPercent } from "@/lib/format";
 import { getFeatures } from "@/lib/queries/features";
 import { ratio } from "@/lib/queries/transforms";
 
@@ -169,6 +169,80 @@ export default async function FeaturesPage({ searchParams }: PageProps) {
             series={[{ key: "value", label: "Issues" }]}
           />
         </ChartCard>
+
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <KpiCard
+            label="Review cost"
+            value={formatCents(data.bugbotReviews.costCents)}
+            icon={<DollarSign className="h-4 w-4" />}
+            footer="Billed BugBot reviews in range"
+          />
+          <KpiCard
+            label="Completed reviews"
+            value={formatCompact(data.bugbotReviews.reviews)}
+            footer={`${formatCompact(data.bugbotReviews.dryRuns)} dry runs`}
+          />
+          <KpiCard
+            label="Findings"
+            value={formatCompact(data.bugbotReviews.findings)}
+            footer="Across posted + dry-run reviews"
+          />
+          <KpiCard
+            label="Cost per review"
+            value={
+              data.bugbotReviews.reviews - data.bugbotReviews.dryRuns > 0
+                ? formatCents(
+                    data.bugbotReviews.costCents /
+                      (data.bugbotReviews.reviews - data.bugbotReviews.dryRuns),
+                  )
+                : "—"
+            }
+            footer="Posted reviews only"
+          />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <ChartCard
+            title="Review cost over time"
+            description="Billed cents per day"
+            isEmpty={data.bugbotReviews.costByDay.length === 0}
+            emptyMessage="No per-review BugBot analytics yet."
+          >
+            <SeriesChart
+              data={data.bugbotReviews.costByDay}
+              xKey="date"
+              xFormat="date"
+              kind="bar"
+              valueFormat="cents"
+              series={[{ key: "cents", label: "Cost" }]}
+            />
+          </ChartCard>
+          <ChartCard
+            title="Findings by resolution"
+            description="Posted findings resolved vs. unresolved; dry runs separately"
+            isEmpty={data.bugbotReviews.byResolution.length === 0}
+          >
+            <SeriesChart
+              data={data.bugbotReviews.byResolution}
+              xKey="key"
+              kind="donut"
+              valueFormat="number"
+              series={[{ key: "value", label: "Findings" }]}
+            />
+          </ChartCard>
+          <ChartCard
+            title="Review cost by repository"
+            description="Top repositories by billed cost"
+            isEmpty={data.bugbotReviews.byRepo.length === 0}
+          >
+            <SeriesChart
+              data={data.bugbotReviews.byRepo}
+              xKey="key"
+              kind="bar"
+              valueFormat="cents"
+              series={[{ key: "value", label: "Cost" }]}
+            />
+          </ChartCard>
+        </div>
       </div>
     </>
   );

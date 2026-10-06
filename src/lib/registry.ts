@@ -10,20 +10,38 @@ import type { ValueFormat } from "./format";
 
 export type ChartKind = "line" | "area" | "bar" | "stackedBar" | "stackedArea" | "pie" | "donut";
 
-/** Per-team-per-minute rate-limit buckets enforced by the API client. */
+/**
+ * Per-team-per-minute rate-limit buckets enforced by the API client. Admin API limits are
+ * scoped per endpoint (docs: "most are scoped to a single endpoint"), so each Admin route
+ * gets its own bucket; Analytics limits are shared across the team / by-user families.
+ */
 export type RateLimitGroup =
-  | "adminGeneral" // 20/min: members, audit-logs, daily-usage, spend, usage-events
+  | "adminMembers" // 20/min: GET /teams/members
+  | "adminAuditLogs" // 20/min: GET /teams/audit-logs
+  | "adminDailyUsage" // 20/min: POST /teams/daily-usage-data
+  | "adminSpend" // 20/min: POST /teams/spend
+  | "adminUsageEvents" // 60/min: POST /teams/filtered-usage-events
+  | "adminGroups" // 20/min: /teams/groups + /teams/directory-groups
   | "adminSpendLimit" // 250/min: user-spend-limit
-  | "analyticsTeam" // 100/min: most /analytics/team/*
-  | "analyticsByUser" // 50/min: /analytics/by-user/*
-  | "analyticsConversationInsights"; // 20/min
+  | "analyticsTeam" // 100/min: shared by /analytics/team/*
+  | "analyticsByUser" // 50/min: shared by /analytics/by-user/*
+  | "analyticsConversationInsights" // 20/min
+  | "aiCodeCommits" // 20/min: /analytics/ai-code/commits
+  | "aiCodeChanges"; // 20/min: /analytics/ai-code/changes
 
 export const RATE_LIMITS: Record<RateLimitGroup, number> = {
-  adminGeneral: 20,
+  adminMembers: 20,
+  adminAuditLogs: 20,
+  adminDailyUsage: 20,
+  adminSpend: 20,
+  adminUsageEvents: 60,
+  adminGroups: 20,
   adminSpendLimit: 250,
   analyticsTeam: 100,
   analyticsByUser: 50,
   analyticsConversationInsights: 20,
+  aiCodeCommits: 20,
+  aiCodeChanges: 20,
 };
 
 /** Dashboard sections (each is a page in the app). */
@@ -35,9 +53,10 @@ export type DashboardSection =
   | "productivity"
   | "features"
   | "members"
-  | "audit";
+  | "audit"
+  | "ai-code";
 
-export type MetricSource = "admin" | "analytics-team" | "analytics-by-user";
+export type MetricSource = "admin" | "analytics-team" | "analytics-by-user" | "ai-code";
 
 export interface MetricDef {
   /** Stable id; also the canonical name used by sync jobs and tables. */
@@ -68,7 +87,7 @@ export const METRICS: readonly MetricDef[] = [
     description: "Roster of team members with role and removal status.",
     source: "admin",
     endpoint: "/teams/members",
-    rateLimitGroup: "adminGeneral",
+    rateLimitGroup: "adminMembers",
     section: "members",
     defaultChart: "bar",
     valueFormat: "number",
@@ -79,7 +98,7 @@ export const METRICS: readonly MetricDef[] = [
     description: "Security/administrative events (logins, membership, settings).",
     source: "admin",
     endpoint: "/teams/audit-logs",
-    rateLimitGroup: "adminGeneral",
+    rateLimitGroup: "adminAuditLogs",
     section: "audit",
     defaultChart: "bar",
     valueFormat: "number",
@@ -91,7 +110,7 @@ export const METRICS: readonly MetricDef[] = [
     description: "Per-user-per-day usage: lines, applies, accepts, tabs, requests by mode.",
     source: "admin",
     endpoint: "/teams/daily-usage-data",
-    rateLimitGroup: "adminGeneral",
+    rateLimitGroup: "adminDailyUsage",
     section: "productivity",
     defaultChart: "area",
     valueFormat: "compact",
@@ -102,7 +121,7 @@ export const METRICS: readonly MetricDef[] = [
     description: "Per-user spend for the current billing cycle, incl. spend limits.",
     source: "admin",
     endpoint: "/teams/spend",
-    rateLimitGroup: "adminGeneral",
+    rateLimitGroup: "adminSpend",
     section: "spend",
     defaultChart: "bar",
     valueFormat: "cents",
@@ -110,13 +129,38 @@ export const METRICS: readonly MetricDef[] = [
   {
     id: "usage-events",
     label: "Usage events",
-    description: "Granular per-request events: model, tokens, max mode, charged cents.",
+    description:
+      "Granular per-request events: model, tokens, max mode, charged cents, and conversation / cloud-agent / automation attribution.",
     source: "admin",
     endpoint: "/teams/filtered-usage-events",
-    rateLimitGroup: "adminGeneral",
+    rateLimitGroup: "adminUsageEvents",
     section: "models",
     defaultChart: "stackedBar",
     valueFormat: "cents",
+  },
+  {
+    id: "billing-groups",
+    label: "Billing groups",
+    description:
+      "Billing groups with per-cycle spend, current/former members, and a daily spend series.",
+    source: "admin",
+    endpoint: "/teams/groups",
+    rateLimitGroup: "adminGroups",
+    section: "spend",
+    defaultChart: "bar",
+    valueFormat: "cents",
+    enterpriseOnly: true,
+  },
+  {
+    id: "directory-groups",
+    label: "Directory groups",
+    description: "Team directory groups and their members (manual or SCIM-synced).",
+    source: "admin",
+    endpoint: "/teams/directory-groups",
+    rateLimitGroup: "adminGroups",
+    section: "members",
+    defaultChart: "bar",
+    valueFormat: "number",
   },
   // --- Analytics API (team-level; most also have by-user variants) ---
   {
@@ -295,6 +339,46 @@ export const METRICS: readonly MetricDef[] = [
     section: "features",
     defaultChart: "bar",
     valueFormat: "number",
+    enterpriseOnly: true,
+  },
+  {
+    id: "bugbot-reviews",
+    label: "BugBot reviews",
+    description:
+      "Per-review BugBot analytics: billed cost, findings by severity, resolution status, and dry runs.",
+    source: "analytics-team",
+    endpoint: "/analytics/team/bugbot-reviews",
+    rateLimitGroup: "analyticsTeam",
+    section: "features",
+    defaultChart: "bar",
+    valueFormat: "cents",
+    enterpriseOnly: true,
+  },
+  // --- AI Code Tracking API (Enterprise alpha; response shapes may change) ---
+  {
+    id: "ai-code-commits",
+    label: "AI code commits",
+    description:
+      "Per-commit line attribution: Tab vs Composer (Agent) vs non-AI lines, by repo, branch, user, and commit source (alpha).",
+    source: "ai-code",
+    endpoint: "/analytics/ai-code/commits",
+    rateLimitGroup: "aiCodeCommits",
+    section: "ai-code",
+    defaultChart: "stackedArea",
+    valueFormat: "compact",
+    enterpriseOnly: true,
+  },
+  {
+    id: "ai-code-changes",
+    label: "AI code changes",
+    description:
+      "Accepted AI changes grouped by change id: source (TAB/COMPOSER), model, lines, and per-file metadata (alpha).",
+    source: "ai-code",
+    endpoint: "/analytics/ai-code/changes",
+    rateLimitGroup: "aiCodeChanges",
+    section: "ai-code",
+    defaultChart: "bar",
+    valueFormat: "compact",
     enterpriseOnly: true,
   },
 ] as const;

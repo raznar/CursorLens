@@ -13,7 +13,7 @@ types → client wrapper → registry → table/migration → sync job. Read
 
 ```
 - [ ] 1. Zod schema + inferred type      src/lib/cursor/types.ts
-- [ ] 2. Typed client wrapper             src/lib/cursor/admin.ts | analytics.ts (+ export in index.ts)
+- [ ] 2. Typed client wrapper             src/lib/cursor/admin.ts | analytics.ts | ai-code.ts (+ export in index.ts)
 - [ ] 3. Registry entry                   src/lib/registry.ts (METRICS)
 - [ ] 4. Drizzle table + migration        src/db/schema.ts  ->  npm run db:generate / db:migrate
 - [ ] 5. Sync job                         src/lib/sync/jobs/{admin,analytics-team,analytics-by-user}.ts
@@ -31,17 +31,21 @@ schemas — the by-user live API may omit `event_date` on each row.
 
 ## 2. Typed client wrapper (`src/lib/cursor/`)
 
-Add a function in `admin.ts` (Admin API) or `analytics.ts` (Analytics API) that calls
+Add a function in `admin.ts` (Admin API), `analytics.ts` (Analytics API), or `ai-code.ts`
+(AI Code Tracking API — flat `{ items, totalCount, page, pageSize }` envelope) that calls
 `http.request({ method, path, group, schema, query|body, etag? })` and returns plain data.
-Follow pagination to completion with `collectPages` / `collectByUserPages`
-(`src/lib/cursor/pagination.ts`). Pick the right `group` (see step 3). Export it from
-`src/lib/cursor/index.ts` and, if it's a new facade method, add it to the `CursorClient`
-interface there. Add a fixture branch in `src/lib/cursor/mock.ts` so offline mode works.
+Small endpoints follow pagination to completion with `collectPages` / `collectByUserPages`;
+high-volume windowed endpoints should expose a `stream*` generator built on `streamPages`
+(`src/lib/cursor/pagination.ts`) so the job can upsert page by page. Pick the right `group`
+(see step 3; Admin limits are per endpoint, so a new Admin route usually needs its own
+`RateLimitGroup`). Export it from `src/lib/cursor/index.ts` and, if it's a new facade method,
+add it to the `CursorClient` interface there. Add a fixture branch in `src/lib/cursor/mock.ts`
+so offline mode works.
 
 ## 3. Registry entry (`src/lib/registry.ts`)
 
 Append a `MetricDef` to `METRICS` with: `id` (also the sync `dataType`), `label`,
-`description`, `source` (`admin` | `analytics-team` | `analytics-by-user`), `endpoint`,
+`description`, `source` (`admin` | `analytics-team` | `analytics-by-user` | `ai-code`), `endpoint`,
 `rateLimitGroup` (a `RateLimitGroup` key in `RATE_LIMITS`), `section`, `defaultChart`,
 `valueFormat`, and `hasByUser` / `enterpriseOnly` when relevant.
 
@@ -53,14 +57,17 @@ then `npm run db:generate` and `npm run db:migrate`.
 
 ## 5. Sync job (`src/lib/sync/jobs/`)
 
-Add a `SyncJob` (`dataType`, `metricId`, `label`, `enterpriseOnly?`, `hourlyPoll?`, `run`).
-For the common team-analytics shape, reuse the `teamDailyJob` factory in `analytics-team.ts`
-(supply `schema`, `table`, `mapRows`, `watermark`); by-user metrics use the `byUserJob` factory
-in `analytics-by-user.ts` (its `dataType` is `by-user/<metricId>`). In `run`, iterate
-`ctx.chunks` (≤30-day windows), thread the ETag when there's a single chunk, transform with
-helpers from `jobs/helpers.ts`, and persist via `upsertRows`. Register the job in its
-`analyticsTeamJobs` / `analyticsByUserJobs` / `adminJobs` array so `src/lib/sync/jobs/index.ts`
-picks it up.
+Add a `SyncJob` (`dataType`, `metricId`, `label`, `enterpriseOnly?`, `hourlyPoll?`,
+`windowed?`, `rateLimitGroup?`, `run`). For the common team-analytics shape, reuse the
+`teamDailyJob` factory in `analytics-team.ts` (supply `schema`, `table`, `mapRows`,
+`watermark`); by-user metrics use the `byUserJob` factory in `analytics-by-user.ts` (its
+`dataType` is `by-user/<metricId>`). Date-windowed jobs set `windowed: true`, iterate
+`ctx.chunks` (already reduced to uncovered windows on backfills), pass `ctx.etagFor(chunk)` as
+the ETag, transform with helpers from `jobs/helpers.ts`, persist via `upsertRows` (per page for
+streamed endpoints), and call `ctx.markCovered(chunk, { etag, rows })` once the window is fully
+written. Set `rateLimitGroup` when it differs from the registry metric's group (e.g. by-user
+jobs). Register the job in its `analyticsTeamJobs` / `analyticsByUserJobs` / `adminJobs` array
+so `src/lib/sync/jobs/index.ts` picks it up.
 
 ## 6–7. Finalize
 

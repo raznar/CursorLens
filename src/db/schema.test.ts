@@ -5,7 +5,10 @@ import * as schema from "./schema";
 import {
   analyticsConversationInsights,
   analyticsModels,
+  auditLogs,
   dailyUsage,
+  spend,
+  syncCoverage,
   syncRunItems,
   teamMembers,
   usageEvents,
@@ -20,9 +23,15 @@ function pkColumnNames(table: SQLiteTable): string[] {
 }
 
 describe("db schema", () => {
-  it("exports all 34 tables", () => {
+  it("exports all 45 tables", () => {
     const tables = Object.values(schema).filter((value) => is(value, SQLiteTable));
-    expect(tables).toHaveLength(34);
+    expect(tables).toHaveLength(45);
+  });
+
+  it("keys amended commits by hash + ingestion time and groups by cycle", () => {
+    expect(pkColumnNames(schema.aiCodeCommits)).toEqual(["commit_hash", "created_at"]);
+    expect(pkColumnNames(schema.billingGroups)).toEqual(["cycle_start", "id"]);
+    expect(pkColumnNames(schema.analyticsBugbotReviewFindings)).toEqual(["idx", "request_id"]);
   });
 
   it("uses composite + single primary keys that match the spec", () => {
@@ -31,6 +40,7 @@ describe("db schema", () => {
     expect(pkColumnNames(analyticsModels)).toEqual(["date", "model"]);
     expect(pkColumnNames(analyticsConversationInsights)).toEqual(["date", "label", "slice"]);
     expect(pkColumnNames(syncRunItems)).toEqual(["data_type", "run_id"]);
+    expect(pkColumnNames(syncCoverage)).toEqual(["data_type", "window_end", "window_start"]);
   });
 
   it("configures team_members with a notNull email and an email index", () => {
@@ -57,5 +67,21 @@ describe("db schema", () => {
     // Fractional-cent fields are REAL; token counts are INTEGER.
     expect(cfg.columns.find((c) => c.name === "charged_cents")?.getSQLType()).toBe("real");
     expect(cfg.columns.find((c) => c.name === "input_tokens")?.getSQLType()).toBe("integer");
+    // Cycle spend became fractional cents in June 2026.
+    const spendCfg = getTableConfig(spend);
+    expect(spendCfg.columns.find((c) => c.name === "spend_cents")?.getSQLType()).toBe("real");
+    expect(spendCfg.columns.find((c) => c.name === "overall_spend_cents")?.getSQLType()).toBe(
+      "real",
+    );
+  });
+
+  it("carries the attribution ids on usage events and the surface on audit logs", () => {
+    const ue = getTableConfig(usageEvents);
+    for (const name of ["conversation_id", "cloud_agent_id", "automation_id"]) {
+      expect(ue.columns.find((c) => c.name === name)?.getSQLType()).toBe("text");
+    }
+    expect(ue.indexes.some((i) => i.config.name === "usage_events_conversation_id_idx")).toBe(true);
+    const al = getTableConfig(auditLogs);
+    expect(al.columns.find((c) => c.name === "application_type")?.getSQLType()).toBe("text");
   });
 });

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelative } from "@/lib/format";
 import { SyncStatusTable, type SyncStatusRow } from "./sync-status-table";
-import { SYNC_STATUS_REFRESH_EVENT } from "./sync-progress-events";
+import { SYNC_STATUS_REFRESH_EVENT, dispatchSyncRunState } from "./sync-progress-events";
 
 interface SyncJobSummary {
   dataType: string;
@@ -44,11 +44,28 @@ interface SyncRunItemJson {
   progress_message: string | null;
 }
 
+interface ActiveSyncJson {
+  runId: number;
+  mode: string;
+  trigger: string;
+  startedAt: number;
+}
+
 interface SyncStatusJson {
   state: SyncStateJson[];
   latestRun?: SyncRunJson;
   latestItems: SyncRunItemJson[];
   recentRuns: SyncRunJson[];
+  active?: ActiveSyncJson | null;
+}
+
+function broadcastRunState(status: SyncStatusJson): void {
+  const running = Boolean(status.active) || status.latestRun?.status === "running";
+  dispatchSyncRunState({
+    running,
+    runId: status.active?.runId ?? (running ? (status.latestRun?.id ?? null) : null),
+    trigger: status.active?.trigger ?? (running ? (status.latestRun?.trigger ?? null) : null),
+  });
 }
 
 const RUN_BADGE: Record<string, React.ComponentProps<typeof Badge>["variant"]> = {
@@ -97,11 +114,16 @@ export function SyncStatusPanel({
       if (!res.ok) throw new Error(`Status refresh failed (${res.status})`);
       const next = (await res.json()) as SyncStatusJson;
       setStatus(next);
+      broadcastRunState(next);
       setLastRefreshError(null);
     } catch (err) {
       setLastRefreshError(err instanceof Error ? err.message : "Status refresh failed");
     }
   }, []);
+
+  useEffect(() => {
+    broadcastRunState(initialStatus);
+  }, [initialStatus]);
 
   useEffect(() => {
     const onRefresh = () => void refreshStatus();

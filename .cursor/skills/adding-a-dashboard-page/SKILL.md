@@ -14,8 +14,8 @@ formatter conventions.
 ```
 - [ ] 1. Query helper        src/lib/queries/<area>.ts  (server-only; returns plain serializable data)
 - [ ] 2. Page (RSC)          src/app/<area>/page.tsx    (export const dynamic = "force-dynamic")
-- [ ] 3. Nav entry           src/components/layout/nav-items.ts
-- [ ] 4. (optional) Metric   src/lib/registry.ts section, if the page surfaces a registry metric
+- [ ] 3. Nav entry           src/components/layout/nav-items.ts + src/lib/dashboard-pages.ts
+- [ ] 4. (optional) Metric   src/lib/registry.ts section (add a DashboardSection for a new page)
 - [ ] 5. Tests + npm run verify
 ```
 
@@ -53,10 +53,15 @@ export default async function AreaPage({ searchParams }: PageProps) {
 - Route transitions use `src/app/loading.tsx` (`DashboardPageSkeleton`) for instant feedback;
   nav links prefetch RSC payloads. Reuse that skeleton if a page needs a custom loading UI.
 
-## 3. Nav entry (`src/components/layout/nav-items.ts`)
+## 3. Nav entry (`src/components/layout/nav-items.ts`, `src/lib/dashboard-pages.ts`)
 
 Add a `NavItem` (`href`, `label`, `lucide` icon) to `NAV_ITEMS` (primary) or
-`SECONDARY_NAV_ITEMS`. The sidebar/topbar render from these arrays.
+`SECONDARY_NAV_ITEMS`. The sidebar/topbar render from these arrays. Also add the route to
+`DASHBOARD_PAGES` with its `DashboardSection` so the Ask Agent's page context resolves the
+section's metrics (e.g. `/ai-code` → `"ai-code"`).
+
+Query helpers for DB-backed pages are tested against a temp SQLite file filled by a mock
+backfill, with the live-cache guard mocked out — see `src/lib/queries/new-endpoints.test.ts`.
 
 ## 4–5. Finalize
 

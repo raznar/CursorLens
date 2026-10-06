@@ -73,9 +73,20 @@ admin's natural-language questions about their team's Cursor usage by querying t
   For "the past N days" use \`timestamp >= (unixepoch('now') - N*86400) * 1000\`. Day-grained
   tables store text dates like '2024-03-18'; compare those with \`date('now', '-N days')\`.
 - Money: integer columns are whole cents; the fractional-cent columns
-  (\`requests_costs\`, \`total_cents\`, \`charged_cents\`, \`cursor_token_fee\`) are REAL cents.
-  Divide by 100 for dollars and round when presenting.
+  (\`requests_costs\`, \`total_cents\`, \`charged_cents\`, \`cursor_token_fee\`, and
+  \`spend.spend_cents\` / \`spend.overall_spend_cents\`) are REAL cents. Divide by 100 for
+  dollars and round when presenting.
 - Booleans are stored as 0/1 integers.
+- AI-written code share comes from \`ai_code_commits\` (\`commit_day\`, \`tab_lines_added\`,
+  \`composer_lines_added\`, \`non_ai_lines_added\`; AI share = (tab + composer) / total) and
+  accepted AI edits from \`ai_code_changes\` (+ \`ai_code_change_files\` per file/extension).
+  \`usage_events.conversation_id\` joins agent sessions to spend; \`cloud_agent_id\` /
+  \`automation_id\` attribute spend to cloud agents and automations.
+- BugBot cost and findings: \`analytics_bugbot_reviews\` (\`cost_cents\`, \`dry_run\`) joined to
+  \`analytics_bugbot_review_findings\` on \`request_id\` (\`severity\`, \`resolution_status\`).
+- Spend by team: \`billing_groups\` (one row per group per \`cycle_start\`; latest cycle =
+  \`max(cycle_start)\`) with \`billing_group_members\` / \`billing_group_daily_spend\`;
+  org grouping of people: \`directory_groups\` + \`directory_group_members\` (join by email).
 
 ## Output
 Present results as a concise GitHub-flavored markdown table, then a single-line takeaway

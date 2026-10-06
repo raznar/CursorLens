@@ -49,6 +49,25 @@ export function createLimiters(options: LimiterOptions = {}): Limiters {
   return Object.fromEntries(entries) as Limiters;
 }
 
+const globalForLimiters = globalThis as typeof globalThis & { __cursorLensLimiters?: Limiters };
+
+/**
+ * Process-wide limiters shared by every live client. Rate limits are per team, not per
+ * client instance, so two concurrent syncs (cron + manual) must draw from the same buckets.
+ * Stored on `globalThis` so Next.js module duplication (dev HMR, route bundles) can't fork it.
+ */
+export function getSharedLimiters(): Limiters {
+  globalForLimiters.__cursorLensLimiters ??= createLimiters();
+  return globalForLimiters.__cursorLensLimiters;
+}
+
+/** Drop the shared limiters (tests / shutdown); the next caller creates fresh ones. */
+export async function resetSharedLimiters(): Promise<void> {
+  const current = globalForLimiters.__cursorLensLimiters;
+  globalForLimiters.__cursorLensLimiters = undefined;
+  if (current) await disposeLimiters(current);
+}
+
 /** Schedule a task on the limiter for `group`, awaiting a reservoir token + spacing. */
 export function schedule<T>(
   limiters: Limiters,

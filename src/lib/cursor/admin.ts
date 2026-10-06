@@ -1,6 +1,8 @@
 /**
- * Typed wrappers for the five Admin API endpoints. Each returns plain data (pagination is
- * followed to completion here); the sync engine handles 30-day windowing and persistence.
+ * Typed wrappers for the Admin API endpoints. Windowed, high-volume endpoints expose a
+ * `stream*` variant that yields one page at a time (see `pagination.ts`) so the sync engine
+ * can persist each page as it lands; the `get*` variants collect everything into an array.
+ * The sync engine handles 30-day windowing and persistence.
  *
  * Endpoints:
  *  - GET  /teams/members              (roster, not paginated)
@@ -10,28 +12,42 @@
  *  - GET  /teams/audit-logs           (security events, paginated)
  */
 import type { CursorHttp } from "./client";
-import { collectPages } from "./pagination";
+import { collectPages, streamPages, type PageBatch } from "./pagination";
 import {
   AuditLogsResponseSchema,
+  BillingGroupsResponseSchema,
   DailyUsageResponseSchema,
+  DirectoryGroupMembersResponseSchema,
+  DirectoryGroupsResponseSchema,
   SpendResponseSchema,
   TeamMembersResponseSchema,
   UsageEventsResponseSchema,
   type AuditLogEvent,
+  type BillingGroupsResponse,
   type DailyUsageRow,
+  type DirectoryGroup,
+  type DirectoryGroupMember,
   type SpendRow,
   type TeamMember,
   type UsageEvent,
 } from "./types";
 
-/** Default page size for paginated admin endpoints (servers cap as needed). */
-const PAGE_SIZE = 500;
+/**
+ * Page sizes per the Admin API docs: `filtered-usage-events` allows up to 1000, `audit-logs`
+ * up to 500, `daily-usage-data` documents a 1000 example; `spend` documents no cap;
+ * directory-group list routes clamp at 200.
+ */
+export const SPEND_PAGE_SIZE = 500;
+export const DAILY_USAGE_PAGE_SIZE = 1000;
+export const USAGE_EVENTS_PAGE_SIZE = 1000;
+export const AUDIT_LOGS_PAGE_SIZE = 500;
+export const DIRECTORY_GROUPS_PAGE_SIZE = 200;
 
 export async function getMembers(http: CursorHttp): Promise<TeamMember[]> {
   const res = await http.request({
     method: "GET",
     path: "/teams/members",
-    group: "adminGeneral",
+    group: "adminMembers",
     schema: TeamMembersResponseSchema,
   });
   return res.data?.teamMembers ?? [];
@@ -42,14 +58,14 @@ export interface SpendResult {
   subscriptionCycleStart?: number;
 }
 
-export async function getSpend(http: CursorHttp, pageSize = PAGE_SIZE): Promise<SpendResult> {
+export async function getSpend(http: CursorHttp, pageSize = SPEND_PAGE_SIZE): Promise<SpendResult> {
   let subscriptionCycleStart: number | undefined;
   const rows = await collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/spend",
-        group: "adminGeneral",
+        group: "adminSpend",
         body: { page, pageSize, sortBy: "amount", sortDirection: "desc" },
         schema: SpendResponseSchema,
       });
@@ -60,6 +76,7 @@ export async function getSpend(http: CursorHttp, pageSize = PAGE_SIZE): Promise<
       return d.teamMemberSpend;
     },
     getPagination: (d) => ({ totalPages: d.totalPages ?? undefined }),
+    pageSize,
   });
   return { rows, subscriptionCycleStart };
 }
@@ -71,17 +88,17 @@ export interface AdminWindow {
   endDate: number;
 }
 
-export async function getDailyUsage(
+export function streamDailyUsage(
   http: CursorHttp,
   window: AdminWindow,
-  pageSize = PAGE_SIZE,
-): Promise<DailyUsageRow[]> {
-  return collectPages({
+  pageSize = DAILY_USAGE_PAGE_SIZE,
+): AsyncGenerator<PageBatch<DailyUsageRow>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/daily-usage-data",
-        group: "adminGeneral",
+        group: "adminDailyUsage",
         body: { startDate: window.startDate, endDate: window.endDate, page, pageSize },
         schema: DailyUsageResponseSchema,
       });
@@ -89,7 +106,16 @@ export async function getDailyUsage(
     },
     getItems: (d) => d.data,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getDailyUsage(
+  http: CursorHttp,
+  window: AdminWindow,
+  pageSize = DAILY_USAGE_PAGE_SIZE,
+): Promise<DailyUsageRow[]> {
+  return collectBatches(streamDailyUsage(http, window, pageSize));
 }
 
 export interface UsageEventsQuery extends AdminWindow {
@@ -97,17 +123,17 @@ export interface UsageEventsQuery extends AdminWindow {
   userId?: number;
 }
 
-export async function getUsageEvents(
+export function streamUsageEvents(
   http: CursorHttp,
   query: UsageEventsQuery,
-  pageSize = PAGE_SIZE,
-): Promise<UsageEvent[]> {
-  return collectPages({
+  pageSize = USAGE_EVENTS_PAGE_SIZE,
+): AsyncGenerator<PageBatch<UsageEvent>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/filtered-usage-events",
-        group: "adminGeneral",
+        group: "adminUsageEvents",
         body: {
           startDate: query.startDate,
           endDate: query.endDate,
@@ -122,7 +148,16 @@ export async function getUsageEvents(
     },
     getItems: (d) => d.usageEvents,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getUsageEvents(
+  http: CursorHttp,
+  query: UsageEventsQuery,
+  pageSize = USAGE_EVENTS_PAGE_SIZE,
+): Promise<UsageEvent[]> {
+  return collectBatches(streamUsageEvents(http, query, pageSize));
 }
 
 export interface AuditLogsQuery {
@@ -134,17 +169,17 @@ export interface AuditLogsQuery {
   search?: string;
 }
 
-export async function getAuditLogs(
+export function streamAuditLogs(
   http: CursorHttp,
   query: AuditLogsQuery,
-  pageSize = PAGE_SIZE,
-): Promise<AuditLogEvent[]> {
-  return collectPages({
+  pageSize = AUDIT_LOGS_PAGE_SIZE,
+): AsyncGenerator<PageBatch<AuditLogEvent>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "GET",
         path: "/teams/audit-logs",
-        group: "adminGeneral",
+        group: "adminAuditLogs",
         query: {
           startTime: query.startTime,
           endTime: query.endTime,
@@ -159,5 +194,83 @@ export async function getAuditLogs(
     },
     getItems: (d) => d.events,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getAuditLogs(
+  http: CursorHttp,
+  query: AuditLogsQuery,
+  pageSize = AUDIT_LOGS_PAGE_SIZE,
+): Promise<AuditLogEvent[]> {
+  return collectBatches(streamAuditLogs(http, query, pageSize));
+}
+
+/**
+ * GET /teams/groups — billing groups with cycle spend, members, and a daily series. One
+ * request per billing cycle; `billingCycle` (ISO date) selects a past cycle.
+ */
+export async function getBillingGroups(
+  http: CursorHttp,
+  billingCycle?: string,
+): Promise<BillingGroupsResponse> {
+  const res = await http.request({
+    method: "GET",
+    path: "/teams/groups",
+    group: "adminGroups",
+    query: { billingCycle },
+    schema: BillingGroupsResponseSchema,
+  });
+  return res.data!;
+}
+
+/** GET /teams/directory-groups — Team directory groups (paginated). */
+export async function getDirectoryGroups(
+  http: CursorHttp,
+  pageSize = DIRECTORY_GROUPS_PAGE_SIZE,
+): Promise<DirectoryGroup[]> {
+  return collectPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: "/teams/directory-groups",
+        group: "adminGroups",
+        query: { page, pageSize },
+        schema: DirectoryGroupsResponseSchema,
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.groups,
+    getPagination: (d) => d.pagination,
+    pageSize,
+  });
+}
+
+/** GET /teams/directory-groups/:groupId/members — members of one directory group. */
+export async function getDirectoryGroupMembers(
+  http: CursorHttp,
+  groupId: string,
+  pageSize = DIRECTORY_GROUPS_PAGE_SIZE,
+): Promise<DirectoryGroupMember[]> {
+  return collectPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: `/teams/directory-groups/${encodeURIComponent(groupId)}/members`,
+        group: "adminGroups",
+        query: { page, pageSize },
+        schema: DirectoryGroupMembersResponseSchema,
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.members,
+    getPagination: (d) => d.pagination,
+    pageSize,
+  });
+}
+
+async function collectBatches<T>(batches: AsyncGenerator<PageBatch<T>>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const batch of batches) items.push(...batch.items);
+  return items;
 }

@@ -15,7 +15,12 @@ can load it without `server-only`.
 - Timestamps are `integer` epoch **milliseconds** (a JS number), not SQLite datetimes.
 - Day markers are `text` strings like `"2024-03-18"`.
 - Money is `integer` **cents**, except the fractional-cent columns from usage events
-  (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`) which use `real`.
+  (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`) and from `/teams/spend`
+  (`spend_cents`, `overall_spend_cents` — fractional since June 2026) which use `real`.
+- Drizzle-kit rewrites a SQLite table to change a column type. When the same migration also
+  **adds** a column to that table, the generated `INSERT INTO __new_… SELECT …` lists the new
+  column and fails against real data — delete it from both column lists by hand (see
+  `drizzle/0007_api_drift_2026.sql`).
 - Booleans use `integer("col", { mode: "boolean" })` (stored 0/1).
 - Cursor user IDs are `text` in persisted tables because Admin endpoints may return either
   numeric IDs or stable `user_...` strings.
@@ -61,9 +66,15 @@ Keep ingestion idempotent: pick a primary key that makes a repeat fetch overwrit
 
 ## Tables at a glance
 
-Admin: `team_members`, `audit_logs`, `daily_usage`, `spend`, `usage_events`. Analytics
-team-level + by-user variants (`analytics_*` / `by_user_*`). Ops: `sync_state` (per-data-type
-watermark/etag/status), `sync_runs` + `sync_run_items` (run log plus nullable
-`progress_current`, `progress_total`, and `progress_message` for in-flight UI feedback),
+Admin: `team_members`, `audit_logs`, `daily_usage`, `spend`, `usage_events`, `billing_groups`
+(+ `_members`, `_daily_spend`; one row per group per `cycle_start`), `directory_groups` (+
+`_members`). Analytics team-level + by-user variants (`analytics_*` / `by_user_*`), incl.
+`analytics_bugbot_reviews` + `_findings`. AI Code Tracking: `ai_code_commits` (PK
+`commit_hash + created_at` — amended commits reappear), `ai_code_changes`,
+`ai_code_change_files`. Ops: `sync_state` (per-data-type
+watermark/etag/status), `sync_coverage` (per-data-type windows already ingested, with the
+window's ETag — drives resumable backfills; see `sync-and-rate-limits`), `sync_runs` +
+`sync_run_items` (run log plus nullable `progress_current`, `progress_total`, and
+`progress_message` for in-flight UI feedback),
 `settings` (encrypted keys + config), `saved_reports` (saved Ask-Agent conversations). Full
 generated reference: `data/SCHEMA.md`.

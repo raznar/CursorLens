@@ -26,3 +26,6 @@ next-env.d.ts
 *.pem
 .vscode/*
 !.vscode/extensions.json
+
+# TypeScript incremental build info
+tsconfig.tsbuildinfo

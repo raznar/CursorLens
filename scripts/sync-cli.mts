@@ -2,7 +2,8 @@
  * CLI to run a sync from the terminal / cron.
  *
  *   npm run sync                         # incremental
- *   npm run sync -- --backfill --days 30 # backfill last 30 days
+ *   npm run sync -- --backfill --days 30 # backfill last 30 days (skips covered windows)
+ *   npm run sync -- --backfill --force   # re-pull every window, ignoring sync_coverage
  *   npm run sync -- --only models,spend  # subset of data types
  *   CURSOR_MOCK=1 npm run sync -- --backfill --days 30
  *
@@ -33,6 +34,7 @@ interface CliArgs {
   mode: "incremental" | "backfill";
   days?: number;
   only?: string[];
+  force?: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -41,6 +43,7 @@ function parseArgs(argv: string[]): CliArgs {
     const arg = argv[i];
     if (arg === "--backfill") args.mode = "backfill";
     else if (arg === "--incremental") args.mode = "incremental";
+    else if (arg === "--force") args.force = true;
     else if (arg === "--days") args.days = Number(argv[++i]);
     else if (arg.startsWith("--days=")) args.days = Number(arg.slice("--days=".length));
     else if (arg === "--only") args.only = (argv[++i] ?? "").split(",").filter(Boolean);
@@ -70,6 +73,7 @@ async function main(): Promise<void> {
     mode: args.mode,
     days: args.days,
     only: args.only,
+    force: args.force,
     trigger: "cli",
   });
 

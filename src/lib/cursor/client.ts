@@ -22,7 +22,7 @@ import {
 } from "@/lib/errors";
 import { logger as rootLogger, type Logger } from "@/lib/logger";
 import type { RateLimitGroup } from "@/lib/registry";
-import { createLimiters, schedule, type Limiters } from "./ratelimit";
+import { getSharedLimiters, schedule, type Limiters } from "./ratelimit";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -35,7 +35,7 @@ export interface CursorClientOptions {
   mock?: boolean;
   /** Injected fetch (defaults to global `fetch`, or the mock shim in mock mode). */
   fetchImpl?: FetchLike;
-  /** Injected rate limiters (defaults to fresh limiters from the registry). */
+  /** Injected rate limiters (defaults to the process-wide shared limiters). */
   limiters?: Limiters;
   /** Max retry attempts for 429 / 5xx / network errors (default 4). */
   maxRetries?: number;
@@ -124,7 +124,7 @@ export class CursorHttp {
     this.baseUrl = (options.baseUrl ?? config.cursorApiBaseUrl).replace(/\/$/, "");
     this.mock = options.mock ?? config.mock;
     this.fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
-    this.limiters = options.limiters ?? createLimiters();
+    this.limiters = options.limiters ?? getSharedLimiters();
     this.maxRetries = options.maxRetries ?? 4;
     this.backoffBaseMs = options.backoffBaseMs ?? 500;
     this.backoffMaxMs = options.backoffMaxMs ?? 30_000;

@@ -31,7 +31,15 @@ export async function register(): Promise<void> {
     }
 
     const { schedule } = await import("node-cron");
-    const { runSync, getSyncConfig } = await import("@/lib/sync");
+    const { startSync, getSyncConfig, reconcileInterruptedRuns } = await import("@/lib/sync");
+    const { BusyError } = await import("@/lib/errors");
+
+    // Runs execute in-process; anything still "running" in the DB died with the last process.
+    try {
+      reconcileInterruptedRuns();
+    } catch (err) {
+      log.warn({ err: String(err) }, "could not reconcile interrupted sync runs");
+    }
 
     let intervalHours = 1;
     try {
@@ -42,9 +50,20 @@ export async function register(): Promise<void> {
     const expression = intervalHours <= 1 ? "0 * * * *" : `0 */${intervalHours} * * *`;
 
     schedule(expression, () => {
-      void runSync({ mode: "incremental", trigger: "cron" }).catch((err: unknown) => {
-        log.error({ err: String(err) }, "scheduled incremental sync failed");
-      });
+      try {
+        const started = startSync({ mode: "incremental", trigger: "cron" });
+        void started.promise.then((summary) => {
+          if (summary.status === "error") {
+            log.error({ runId: summary.runId }, "scheduled incremental sync failed");
+          }
+        });
+      } catch (err) {
+        if (err instanceof BusyError) {
+          log.info({ active: err.context }, "scheduled sync skipped: a run is already active");
+          return;
+        }
+        log.error({ err: String(err) }, "scheduled incremental sync failed to start");
+      }
     });
 
     log.info({ expression }, "hourly incremental sync scheduled");
