@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AuthError,
+  BusyError,
   NotFoundError,
   RateLimitError,
   TransportError,
@@ -30,6 +31,14 @@ describe("error taxonomy", () => {
     expect(err.status).toBe(429);
     expect(err.retryAfterMs).toBe(60_000);
     expect(err.toJSON()).toMatchObject({ kind: "rate_limit", retryable: true });
+  });
+
+  it("models a conflicting in-progress operation as a retryable 409", () => {
+    const err = new BusyError("sync already running", { context: { runId: 7 } });
+    expect(err.kind).toBe("busy");
+    expect(err.status).toBe(409);
+    expect(err.retryable).toBe(true);
+    expect(err.context).toEqual({ runId: 7 });
   });
 
   it("coerces unknown throwables", () => {

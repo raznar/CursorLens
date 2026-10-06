@@ -10,6 +10,7 @@ export type ErrorKind =
   | "validation" // response/body failed schema validation
   | "transport" // network / non-2xx we can't classify better
   | "not_found" // 404
+  | "busy" // 409 — a conflicting operation (e.g. another sync) is already running
   | "config" // misconfiguration (missing key, bad env)
   | "unknown";
 
@@ -79,6 +80,12 @@ export class TransportError extends AppError {
 export class NotFoundError extends AppError {
   constructor(message = "Not found", options: AppErrorOptions = {}) {
     super("not_found", message, { ...options, retryable: false });
+  }
+}
+
+export class BusyError extends AppError {
+  constructor(message = "Operation already in progress", options: AppErrorOptions = {}) {
+    super("busy", message, { ...options, status: 409, retryable: true });
   }
 }
 

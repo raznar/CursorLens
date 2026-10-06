@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { isEncryptionAvailable } from "@/lib/crypto";
 import { SETTING_ADMIN_KEY, SETTING_SDK_KEY, setSecret } from "@/lib/keys";
+import { BusyError } from "@/lib/errors";
 import {
   clearAllMockAndFixtureData,
   onAdminKeyConfigured,
-  runSync,
   setSyncConfig,
+  startSync,
 } from "@/lib/sync";
 
 /**
@@ -56,9 +57,14 @@ export async function saveSyncSettings(formData: FormData): Promise<void> {
   revalidatePath("/settings");
 }
 
+/** Start a sync in the background; a run already in progress is left alone. */
 export async function triggerSync(formData: FormData): Promise<void> {
   const mode = formData.get("mode") === "backfill" ? "backfill" : "incremental";
-  await runSync({ mode, trigger: "manual" });
+  try {
+    startSync({ mode, trigger: "manual" });
+  } catch (err) {
+    if (!(err instanceof BusyError)) throw err;
+  }
   revalidatePath("/settings");
   revalidatePath("/");
 }
