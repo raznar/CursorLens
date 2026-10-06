@@ -41,6 +41,7 @@ export const spendJob: SyncJob = {
       fast_premium_requests: s.fastPremiumRequests ?? null,
       hard_limit_override_dollars: s.hardLimitOverrideDollars ?? null,
       monthly_limit_dollars: s.monthlyLimitDollars ?? null,
+      effective_per_user_limit_dollars: s.effectivePerUserLimitDollars ?? null,
       subscription_cycle_start: subscriptionCycleStart ?? null,
       synced_at: ctx.now,
     }));
@@ -186,6 +187,9 @@ export const usageEventsJob: SyncJob = {
             user_email: e.userEmail ?? null,
             service_account_id: e.serviceAccountId ?? null,
             service_account_name: e.serviceAccountName ?? null,
+            cloud_agent_id: e.cloudAgentId ?? null,
+            automation_id: e.automationId ?? null,
+            conversation_id: e.conversationId ?? null,
             model: e.model ?? null,
             kind: e.kind ?? null,
             max_mode: e.maxMode ?? null,
@@ -237,6 +241,7 @@ export const auditLogsJob: SyncJob = {
             ip_address: e.ip_address ?? null,
             user_email: e.user_email ?? null,
             event_type: e.event_type ?? null,
+            application_type: e.application_type ?? null,
             event_data: e.event_data !== undefined ? JSON.stringify(e.event_data) : null,
             synced_at: ctx.now,
           };

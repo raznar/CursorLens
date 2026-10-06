@@ -5,7 +5,9 @@ import * as schema from "./schema";
 import {
   analyticsConversationInsights,
   analyticsModels,
+  auditLogs,
   dailyUsage,
+  spend,
   syncCoverage,
   syncRunItems,
   teamMembers,
@@ -59,5 +61,21 @@ describe("db schema", () => {
     // Fractional-cent fields are REAL; token counts are INTEGER.
     expect(cfg.columns.find((c) => c.name === "charged_cents")?.getSQLType()).toBe("real");
     expect(cfg.columns.find((c) => c.name === "input_tokens")?.getSQLType()).toBe("integer");
+    // Cycle spend became fractional cents in June 2026.
+    const spendCfg = getTableConfig(spend);
+    expect(spendCfg.columns.find((c) => c.name === "spend_cents")?.getSQLType()).toBe("real");
+    expect(spendCfg.columns.find((c) => c.name === "overall_spend_cents")?.getSQLType()).toBe(
+      "real",
+    );
+  });
+
+  it("carries the attribution ids on usage events and the surface on audit logs", () => {
+    const ue = getTableConfig(usageEvents);
+    for (const name of ["conversation_id", "cloud_agent_id", "automation_id"]) {
+      expect(ue.columns.find((c) => c.name === name)?.getSQLType()).toBe("text");
+    }
+    expect(ue.indexes.some((i) => i.config.name === "usage_events_conversation_id_idx")).toBe(true);
+    const al = getTableConfig(auditLogs);
+    expect(al.columns.find((c) => c.name === "application_type")?.getSQLType()).toBe("text");
   });
 });

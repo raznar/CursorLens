@@ -169,7 +169,11 @@ function genSpend(page: number, pageSize: number) {
   const { users, pagination } = paginateUsers(page, pageSize);
   return {
     teamMemberSpend: users.map((u) => {
-      const spendCents = randInt(`spend:${u.email}`, 0, 25_000);
+      // Fractional cents, as the live API returns since June 2026.
+      const spendCents = randInt(`spend:${u.email}`, 0, 25_000) + rand01(`spendf:${u.email}`);
+      const hardLimitOverrideDollars =
+        u.role === "owner" ? 0 : pick([0, 100, 200], `hl:${u.email}`);
+      const monthlyLimitDollars = pick([null, 100, 200, 500], `ml:${u.email}`);
       return {
         userId: u.id,
         name: u.name,
@@ -178,8 +182,10 @@ function genSpend(page: number, pageSize: number) {
         spendCents,
         overallSpendCents: spendCents + randInt(`ospend:${u.email}`, 0, 40_000),
         fastPremiumRequests: randInt(`fpr:${u.email}`, 0, 2000),
-        hardLimitOverrideDollars: u.role === "owner" ? 0 : pick([0, 100, 200], `hl:${u.email}`),
-        monthlyLimitDollars: pick([null, 100, 200, 500], `ml:${u.email}`),
+        hardLimitOverrideDollars,
+        monthlyLimitDollars,
+        effectivePerUserLimitDollars:
+          hardLimitOverrideDollars > 0 ? hardLimitOverrideDollars : (monthlyLimitDollars ?? 50),
       };
     }),
     subscriptionCycleStart: Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
@@ -233,6 +239,9 @@ interface MockEvent {
   userEmail: string;
   serviceAccountId?: string;
   serviceAccountName?: string;
+  cloudAgentId?: string;
+  automationId?: string;
+  conversationId?: string;
   model: string;
   kind: string;
   maxMode: boolean;
@@ -270,6 +279,8 @@ function buildAllEvents(startMs: number, endMs: number): MockEvent[] {
         events.push({
           timestamp: String(d.ms + randInt(seed + ":h", 8, 19) * 3_600_000 + i * 61_000),
           userEmail: u.email,
+          // Two events per user-day share a conversation, like a multi-turn agent session.
+          conversationId: `conv_${fnv1a(`${u.email}:${d.day}:${Math.floor(i / 2)}`).toString(16)}`,
           model,
           kind: chargeable ? "Usage-based" : "Included in Business",
           maxMode: rand01(seed + ":mm") > 0.5,
@@ -289,12 +300,15 @@ function buildAllEvents(startMs: number, endMs: number): MockEvent[] {
         });
       }
     }
-    // One headless service-account event per day.
+    // One headless service-account event per day, attributed to a cloud agent + automation.
     events.push({
       timestamp: String(d.ms + 2 * 3_600_000),
       userEmail: SERVICE_ACCOUNT.email,
       serviceAccountId: SERVICE_ACCOUNT.id,
       serviceAccountName: SERVICE_ACCOUNT.name,
+      cloudAgentId: `bc-${fnv1a(`ca:${d.day}`).toString(16)}`,
+      automationId: "7fc64f90-6d7a-4a5d-91b1-bd1f529a85dd",
+      conversationId: `conv_${fnv1a(`sa:${d.day}`).toString(16)}`,
       model: "claude-sonnet-4.5",
       kind: "Usage-based",
       maxMode: true,
@@ -358,6 +372,7 @@ function genAuditLogs(params: URLSearchParams) {
         ip_address: `203.0.113.${randInt(`ip:${d.day}:${i}`, 1, 254)}`,
         user_email: user.email,
         event_type: type,
+        application_type: i === 2 ? "grok_bot" : "cursor",
         event_data: { method: "manual", target: user.email },
       };
     });

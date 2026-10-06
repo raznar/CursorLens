@@ -80,6 +80,8 @@ export const AuditLogEventSchema = z.object({
   ip_address: z.string().nullish(),
   user_email: z.string().nullish(),
   event_type: z.string().nullish(),
+  /** `cursor`, `grok_bot`, or `""` when the originating surface is unknown. */
+  application_type: z.string().nullish(),
   event_data: z.unknown().optional(),
 });
 export const AuditLogsResponseSchema = z.object({
@@ -129,11 +131,14 @@ export const SpendRowSchema = z.object({
   name: z.string().nullish(),
   email: z.string().nullish(),
   role: z.string().nullish(),
+  /** Fractional cents since June 2026 (extra precision for invoice reconciliation). */
   spendCents: z.number().nullish(),
   overallSpendCents: z.number().nullish(),
   fastPremiumRequests: z.number().nullish(),
   hardLimitOverrideDollars: z.number().nullish(),
   monthlyLimitDollars: z.number().nullish(),
+  /** The limit actually enforced, derived from the monthly limit and the hard override. */
+  effectivePerUserLimitDollars: z.number().nullish(),
 });
 export const SpendResponseSchema = z.object({
   teamMemberSpend: z.array(SpendRowSchema),
@@ -156,6 +161,12 @@ export const UsageEventSchema = z.object({
   userEmail: z.string().nullish(),
   serviceAccountId: z.string().nullish(),
   serviceAccountName: z.string().nullish(),
+  /** Cloud agent run that produced the event; omitted outside cloud agents. */
+  cloudAgentId: z.string().nullish(),
+  /** Automation UUID that produced the event; omitted outside automations. */
+  automationId: z.string().nullish(),
+  /** Agent session id — the join key with the AI Code Tracking API's conversations. */
+  conversationId: z.string().nullish(),
   model: z.string().nullish(),
   kind: z.string().nullish(),
   maxMode: z.boolean().nullish(),

@@ -50,6 +50,13 @@
       "when": 1791311997816,
       "tag": "0006_sync_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791312269526,
+      "tag": "0007_api_drift_2026",
+      "breakpoints": true
     }
   ]
 }

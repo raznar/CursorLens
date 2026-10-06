@@ -5,7 +5,8 @@
  * - snake_case table and column names.
  * - Timestamps are INTEGER epoch milliseconds (plain `integer`, a JS number).
  * - Money is INTEGER cents, except where the API returns fractional cents
- *   (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`) which use `real`.
+ *   (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`, and the
+ *   `/teams/spend` `spend_cents` / `overall_spend_cents`) which use `real`.
  * - Booleans use `integer({ mode: "boolean" })`; day strings ("2024-03-18") are `text`.
  *
  * This module is intentionally PURE: it imports only `drizzle-orm/sqlite-core` so it can be
@@ -74,6 +75,8 @@ export const auditLogs = sqliteTable(
     ip_address: text("ip_address"),
     user_email: text("user_email"),
     event_type: text("event_type"),
+    /** Originating surface: "cursor", "grok_bot", or "" / null when unknown. */
+    application_type: text("application_type"),
     /** Raw event payload as a JSON string. */
     event_data: text("event_data"),
     synced_at: integer("synced_at"),
@@ -128,7 +131,8 @@ export const dailyUsage = sqliteTable(
 
 /**
  * `/teams/spend` — per-user spend for the current billing cycle. Doubles as the
- * "user spend limits" read view via `monthly_limit_dollars` + `hard_limit_override_dollars`.
+ * "user spend limits" read view via `monthly_limit_dollars`, `hard_limit_override_dollars`,
+ * and the derived `effective_per_user_limit_dollars`. Spend is fractional cents (`real`).
  */
 export const spend = sqliteTable(
   "spend",
@@ -137,11 +141,12 @@ export const spend = sqliteTable(
     name: text("name"),
     email: text("email"),
     role: text("role"),
-    spend_cents: integer("spend_cents"),
-    overall_spend_cents: integer("overall_spend_cents"),
+    spend_cents: real("spend_cents"),
+    overall_spend_cents: real("overall_spend_cents"),
     fast_premium_requests: integer("fast_premium_requests"),
     hard_limit_override_dollars: integer("hard_limit_override_dollars"),
     monthly_limit_dollars: integer("monthly_limit_dollars"),
+    effective_per_user_limit_dollars: integer("effective_per_user_limit_dollars"),
     subscription_cycle_start: integer("subscription_cycle_start"),
     synced_at: integer("synced_at"),
   },
@@ -161,6 +166,12 @@ export const usageEvents = sqliteTable(
     user_email: text("user_email"),
     service_account_id: text("service_account_id"),
     service_account_name: text("service_account_name"),
+    /** Cloud agent run id (null outside cloud agents). */
+    cloud_agent_id: text("cloud_agent_id"),
+    /** Automation UUID (null outside automations). */
+    automation_id: text("automation_id"),
+    /** Agent session id; joins to AI Code Tracking conversations. */
+    conversation_id: text("conversation_id"),
     model: text("model"),
     kind: text("kind"),
     max_mode: integer("max_mode", { mode: "boolean" }),
@@ -181,6 +192,7 @@ export const usageEvents = sqliteTable(
     index("usage_events_timestamp_idx").on(t.timestamp),
     index("usage_events_user_email_idx").on(t.user_email),
     index("usage_events_model_idx").on(t.model),
+    index("usage_events_conversation_id_idx").on(t.conversation_id),
   ],
 );
 

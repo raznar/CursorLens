@@ -15,7 +15,12 @@ can load it without `server-only`.
 - Timestamps are `integer` epoch **milliseconds** (a JS number), not SQLite datetimes.
 - Day markers are `text` strings like `"2024-03-18"`.
 - Money is `integer` **cents**, except the fractional-cent columns from usage events
-  (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`) which use `real`.
+  (`requests_costs`, `total_cents`, `charged_cents`, `cursor_token_fee`) and from `/teams/spend`
+  (`spend_cents`, `overall_spend_cents` — fractional since June 2026) which use `real`.
+- Drizzle-kit rewrites a SQLite table to change a column type. When the same migration also
+  **adds** a column to that table, the generated `INSERT INTO __new_… SELECT …` lists the new
+  column and fails against real data — delete it from both column lists by hand (see
+  `drizzle/0007_api_drift_2026.sql`).
 - Booleans use `integer("col", { mode: "boolean" })` (stored 0/1).
 - Cursor user IDs are `text` in persisted tables because Admin endpoints may return either
   numeric IDs or stable `user_...` strings.
