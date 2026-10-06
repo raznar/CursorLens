@@ -510,6 +510,30 @@ export const syncState = sqliteTable("sync_state", {
   last_run_id: integer("last_run_id"),
 });
 
+/**
+ * Windows a windowed data type has fully ingested (complete UTC days only). Backfills skip
+ * covered windows and resume at the first uncovered one; an analytics window's ETag is kept
+ * so a forced re-pull of unchanged history returns a free 304. See `sync-and-rate-limits`.
+ */
+export const syncCoverage = sqliteTable(
+  "sync_coverage",
+  {
+    data_type: text("data_type").notNull(),
+    /** First covered day, "YYYY-MM-DD" (UTC, inclusive). */
+    window_start: text("window_start").notNull(),
+    /** Last covered day, "YYYY-MM-DD" (UTC, inclusive). */
+    window_end: text("window_end").notNull(),
+    etag: text("etag"),
+    rows: integer("rows"),
+    synced_at: integer("synced_at").notNull(),
+    run_id: integer("run_id"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.data_type, t.window_start, t.window_end] }),
+    index("sync_coverage_data_type_idx").on(t.data_type),
+  ],
+);
+
 /** One row per sync invocation. */
 export const syncRuns = sqliteTable("sync_runs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -657,6 +681,9 @@ export type NewByUserAskMode = typeof byUserAskMode.$inferInsert;
 
 export type SyncState = typeof syncState.$inferSelect;
 export type NewSyncState = typeof syncState.$inferInsert;
+
+export type SyncCoverage = typeof syncCoverage.$inferSelect;
+export type NewSyncCoverage = typeof syncCoverage.$inferInsert;
 
 export type SyncRun = typeof syncRuns.$inferSelect;
 export type NewSyncRun = typeof syncRuns.$inferInsert;

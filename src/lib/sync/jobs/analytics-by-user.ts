@@ -54,9 +54,9 @@ function lineColumns(r: AgentEditsRow | TabsRow) {
 }
 
 /**
- * Factory for the by-user analytics endpoints. The response `data` is keyed by email; the
- * client merges pages, then `mapUserRows` produces per-user rows (with the email prepended
- * to the primary key). `dateOf` feeds the watermark.
+ * Factory for the by-user analytics endpoints. The response `data` is keyed by email and
+ * pages partition users, so each page is mapped with `mapUserRows` (email prepended to the
+ * primary key) and upserted as it arrives. `dateOf` feeds the watermark.
  */
 function byUserJob<Row, Tbl extends SQLiteTable>(config: {
   metricId: string;
@@ -70,11 +70,14 @@ function byUserJob<Row, Tbl extends SQLiteTable>(config: {
   dateOf: (row: Row) => string | undefined;
 }): SyncJob {
   const metric = getMetric(config.metricId);
+  const label = `${metric?.label ?? config.metricId} by-user`;
   return {
     dataType: `by-user/${config.metricId}`,
     metricId: config.metricId,
     label: `${metric?.label ?? config.metricId} (by user)`,
     enterpriseOnly: true,
+    windowed: true,
+    rateLimitGroup: "analyticsByUser",
     run: async (ctx: JobContext): Promise<JobResult> => {
       const endpoint = `/analytics/by-user/${config.metricId}`;
       let total = 0;
@@ -84,35 +87,49 @@ function byUserJob<Row, Tbl extends SQLiteTable>(config: {
         current: 0,
         total: chunkTotal,
         rows: total,
-        message: `Preparing ${metric?.label ?? config.metricId} by-user windows`,
+        message: `Preparing ${label} windows`,
       });
       for (const [index, chunk] of ctx.chunks.entries()) {
-        const label = windowLabel(chunk.start, chunk.end);
+        const span = windowLabel(chunk.start, chunk.end);
+        let windowRows = 0;
         ctx.reportProgress({
           current: index,
           total: chunkTotal,
           rows: total,
-          message: `Fetching ${metric?.label ?? config.metricId} by-user window ${index + 1}/${chunkTotal}: ${label}`,
+          message: `Fetching ${label} window ${index + 1}/${chunkTotal}: ${span}`,
         });
-        const byEmail = await ctx.client.analytics.byUser<Row>(endpoint, config.schema, {
+        const pages = ctx.client.analytics.byUserPages<Row>(endpoint, config.schema, {
           start: chunk.start,
           end: chunk.end,
         });
-        const rows: Array<Tbl["$inferInsert"]> = [];
-        const dates: Array<string | undefined> = [];
-        for (const [email, userRows] of Object.entries(byEmail)) {
-          rows.push(...config.mapUserRows(email, userRows, chunk));
-          for (const row of userRows) dates.push(config.dateOf(row));
+        for await (const page of pages) {
+          const rows: Array<Tbl["$inferInsert"]> = [];
+          const dates: Array<string | undefined> = [];
+          for (const [email, userRows] of Object.entries(page.data)) {
+            rows.push(...config.mapUserRows(email, userRows, chunk));
+            for (const row of userRows) dates.push(config.dateOf(row));
+          }
+          const written = upsertRows(config.table, rows);
+          windowRows += written;
+          total += written;
+          const wm = maxString(dates);
+          if (wm && (!watermark || wm > watermark)) watermark = wm;
+          const pageLabel = page.totalPages
+            ? `page ${page.page}/${page.totalPages}`
+            : `page ${page.page}`;
+          ctx.reportProgress({
+            current: index,
+            total: chunkTotal,
+            rows: total,
+            message: `Window ${index + 1}/${chunkTotal} (${span}): ${pageLabel}, ${windowRows.toLocaleString()} ${label} rows written`,
+          });
         }
-        const written = upsertRows(config.table, rows);
-        total += written;
-        const wm = maxString(dates);
-        if (wm && (!watermark || wm > watermark)) watermark = wm;
+        ctx.markCovered(chunk, { rows: windowRows });
         ctx.reportProgress({
           current: index + 1,
           total: chunkTotal,
           rows: total,
-          message: `Inserted ${written.toLocaleString()} ${metric?.label ?? config.metricId} by-user rows from ${label}`,
+          message: `Inserted ${windowRows.toLocaleString()} ${label} rows from ${span}`,
         });
       }
       return { rows: total, watermark };

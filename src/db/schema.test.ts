@@ -6,6 +6,7 @@ import {
   analyticsConversationInsights,
   analyticsModels,
   dailyUsage,
+  syncCoverage,
   syncRunItems,
   teamMembers,
   usageEvents,
@@ -20,9 +21,9 @@ function pkColumnNames(table: SQLiteTable): string[] {
 }
 
 describe("db schema", () => {
-  it("exports all 34 tables", () => {
+  it("exports all 35 tables", () => {
     const tables = Object.values(schema).filter((value) => is(value, SQLiteTable));
-    expect(tables).toHaveLength(34);
+    expect(tables).toHaveLength(35);
   });
 
   it("uses composite + single primary keys that match the spec", () => {
@@ -31,6 +32,7 @@ describe("db schema", () => {
     expect(pkColumnNames(analyticsModels)).toEqual(["date", "model"]);
     expect(pkColumnNames(analyticsConversationInsights)).toEqual(["date", "label", "slice"]);
     expect(pkColumnNames(syncRunItems)).toEqual(["data_type", "run_id"]);
+    expect(pkColumnNames(syncCoverage)).toEqual(["data_type", "window_end", "window_start"]);
   });
 
   it("configures team_members with a notNull email and an email index", () => {

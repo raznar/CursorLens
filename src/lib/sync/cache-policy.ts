@@ -30,6 +30,7 @@ import {
   dailyUsage,
   settings,
   spend,
+  syncCoverage,
   syncRunItems,
   syncRuns,
   syncState,
@@ -104,12 +105,13 @@ export function ingestedCacheReadable(): boolean {
   return readSetting(SETTING_LIVE_CACHE_READY) === "1";
 }
 
-/** Delete all ingested metric tables and reset per-endpoint sync bookkeeping. */
+/** Delete all ingested metric tables and reset per-endpoint sync bookkeeping + coverage. */
 export function purgeIngestedCache(): void {
   for (const table of INGESTED_TABLES) {
     db.delete(table).run();
   }
   db.delete(syncState).run();
+  db.delete(syncCoverage).run();
   writeSetting(SETTING_LIVE_CACHE_READY, "0");
 }
 

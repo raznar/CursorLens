@@ -357,6 +357,18 @@ epoch milliseconds unless noted; money is stored in integer cents.
 | subscription_cycle_start    | integer | yes  |     |
 | synced_at                   | integer | yes  |     |
 
+## sync_coverage
+
+| column       | type    | null | key |
+| ------------ | ------- | ---- | --- |
+| data_type    | text    | no   |     |
+| window_start | text    | no   |     |
+| window_end   | text    | no   |     |
+| etag         | text    | yes  |     |
+| rows         | integer | yes  |     |
+| synced_at    | integer | no   |     |
+| run_id       | integer | yes  |     |
+
 ## sync_run_items
 
 | column           | type    | null | key |

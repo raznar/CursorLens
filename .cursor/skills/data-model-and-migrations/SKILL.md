@@ -63,7 +63,9 @@ Keep ingestion idempotent: pick a primary key that makes a repeat fetch overwrit
 
 Admin: `team_members`, `audit_logs`, `daily_usage`, `spend`, `usage_events`. Analytics
 team-level + by-user variants (`analytics_*` / `by_user_*`). Ops: `sync_state` (per-data-type
-watermark/etag/status), `sync_runs` + `sync_run_items` (run log plus nullable
-`progress_current`, `progress_total`, and `progress_message` for in-flight UI feedback),
+watermark/etag/status), `sync_coverage` (per-data-type windows already ingested, with the
+window's ETag — drives resumable backfills; see `sync-and-rate-limits`), `sync_runs` +
+`sync_run_items` (run log plus nullable `progress_current`, `progress_total`, and
+`progress_message` for in-flight UI feedback),
 `settings` (encrypted keys + config), `saved_reports` (saved Ask-Agent conversations). Full
 generated reference: `data/SCHEMA.md`.

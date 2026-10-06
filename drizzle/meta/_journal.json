@@ -43,6 +43,13 @@
       "when": 1780523891596,
       "tag": "0005_gray_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791311997816,
+      "tag": "0006_sync_coverage",
+      "breakpoints": true
     }
   ]
 }

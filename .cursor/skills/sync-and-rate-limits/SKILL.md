@@ -67,8 +67,37 @@ ranges > 30 days. `chunkWindows(start, end)` splits a range into contiguous, day
 at the range end). This matters for `filtered-usage-events` and `audit-logs`, which compare
 timestamps at millisecond precision and do not round `endDate` up — windows that ended at
 midnight silently dropped the last day of every chunk. Day-granular endpoints only read the
-calendar date. Pagination within a window is followed to completion
-(`src/lib/cursor/pagination.ts`).
+calendar date.
+
+## Pagination (`src/lib/cursor/pagination.ts`)
+
+`streamPages()` fetches page 1 alone to learn the total (`totalPages`/`numPages`, or
+`totalCount ÷ pageSize` for the AI Code Tracking envelope), then keeps
+`DEFAULT_PAGE_CONCURRENCY` (4) pages in flight through the limiter and yields pages in order.
+Latency no longer serializes with the limiter's spacing, and consumers persist each page as it
+lands, so memory is bounded and a failure loses one page rather than a whole window. Envelopes
+with only `hasNextPage` fall back to a sequential walk. `collectPages()` /
+`collectByUserPages()` gather everything for small endpoints. The client facade exposes
+`admin.{usageEventPages,auditLogPages,dailyUsagePages}` and `analytics.byUserPages` as
+page-at-a-time generators; jobs upsert per page and report `page k/N` progress.
+
+## Coverage and resumable backfills (`src/lib/sync/plan.ts`, `coverage.ts`)
+
+`sync_coverage(data_type, window_start, window_end, etag, rows, synced_at, run_id)` records
+every window a **windowed** job (`SyncJob.windowed: true`) fully ingested — complete UTC days
+only, never today. Jobs call `ctx.markCovered(window, { etag, rows })` after a window's last
+page is written; the engine plans each windowed job's `ctx.chunks` with `planWindows()`:
+
+- **incremental** / `force: true` → the full range, as before;
+- **backfill** → only days that are uncovered **or** inside the trailing
+  `DEFAULT_INCREMENTAL_DAYS` refresh window, grouped into contiguous runs and re-chunked to ≤30
+  days. An empty plan records the job as `skipped` ("Already covered") without any request.
+
+So a crashed backfill resumes at the first uncovered window, and re-running "Backfill" costs
+only the trailing days. `POST /api/sync { force: true }` / `npm run sync -- --backfill --force`
+re-pulls everything; "Clear cached data" also wipes coverage. Analytics jobs pass
+`ctx.etagFor(window)` (the ETag stored with an identically bounded coverage row) as
+`If-None-Match`, so forced re-pulls of unchanged history return 304s that cost no rate limit.
 
 ## Sync engine (`src/lib/sync/engine.ts`)
 
@@ -86,6 +115,10 @@ coordinated with the server.
   every job in `SYNC_JOBS` (`src/lib/sync/jobs/index.ts`) **in isolation** — a thrown error is
   recorded and never aborts the others. The returned promise never rejects; an engine-level
   failure is folded into the summary as an `engine` item.
+- **Lanes**: jobs are grouped by `SyncJob.rateLimitGroup` (default: the registry metric's
+  group). Jobs in one lane share a bucket and run sequentially; lanes run concurrently
+  (`Promise.all`), so wall time is the longest lane rather than the sum. SQLite writes stay
+  safe because better-sqlite3 is synchronous — lanes only interleave at `await`s on the network.
 - `mode`: `incremental` (default) re-pulls a trailing `DEFAULT_INCREMENTAL_DAYS` window to catch
   late data; `backfill` re-pulls `days` (config in `src/lib/sync/settings.ts`).
 - **Hourly poll guard**: jobs with `hourlyPoll: true` (`daily-usage`, `usage-events`) are skipped

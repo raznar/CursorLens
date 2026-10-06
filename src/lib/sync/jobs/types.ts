@@ -1,5 +1,6 @@
 import type { Logger } from "@/lib/logger";
 import type { CursorClient, DateRange, DateWindow } from "@/lib/cursor";
+import type { RateLimitGroup } from "@/lib/registry";
 import type { SyncState } from "@/db/schema";
 
 /** Whether a run extends the recent window (incremental) or re-pulls `days` of history. */
@@ -11,7 +12,10 @@ export interface JobContext {
   mode: SyncMode;
   /** The resolved [start, end] window for this run. */
   range: DateRange;
-  /** `range` split into ≤ 30-day chunks (date-windowed endpoints iterate these). */
+  /**
+   * Windows to fetch (≤ 30 days each). For windowed jobs on a non-forced backfill these are
+   * only the windows not yet covered plus the trailing refresh days; see `plan.ts`.
+   */
   chunks: DateWindow[];
   /** Previous `sync_state` row for this data type (watermark / etag / last run). */
   prev?: SyncState;
@@ -20,6 +24,10 @@ export interface JobContext {
   log: Logger;
   /** Persist user-visible progress for long-running jobs. */
   reportProgress(progress: JobProgress): void;
+  /** Record that `window` was fully ingested (only complete UTC days are stored). */
+  markCovered(window: DateWindow, info?: { etag?: string; rows?: number }): void;
+  /** ETag stored for a previously covered window with identical bounds, if any. */
+  etagFor(window: DateWindow): string | undefined;
 }
 
 export interface JobProgress {
@@ -55,5 +63,15 @@ export interface SyncJob {
   enterpriseOnly?: boolean;
   /** Hourly-aggregated endpoints (`daily-usage`, `usage-events`): polled ≤ once/hour. */
   hourlyPoll?: boolean;
+  /**
+   * True when the job iterates `ctx.chunks`. The engine plans those windows from coverage
+   * and skips the job when nothing needs fetching. Snapshot jobs (members, spend) leave it off.
+   */
+  windowed?: boolean;
+  /**
+   * Bucket the job's requests draw from. Jobs sharing a bucket run sequentially in one lane;
+   * different lanes run concurrently. Defaults to the registry metric's group.
+   */
+  rateLimitGroup?: RateLimitGroup;
   run(ctx: JobContext): Promise<JobResult>;
 }

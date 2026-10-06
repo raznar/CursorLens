@@ -23,6 +23,8 @@ const RequestBodySchema = z
     days: z.number().int().min(1).max(365).optional(),
     only: z.array(z.string()).optional(),
     wait: z.boolean().optional(),
+    /** Backfill only: ignore `sync_coverage` and re-pull the whole range. */
+    force: z.boolean().optional(),
   })
   .optional();
 
@@ -44,6 +46,7 @@ export async function POST(request: Request) {
       mode,
       days: options.days,
       only: options.only,
+      force: options.force,
       trigger: mode === "backfill" ? "backfill" : "manual",
     });
     if (options.wait) {

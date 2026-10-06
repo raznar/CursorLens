@@ -58,6 +58,49 @@ describe("startSync single-flight lock", () => {
   });
 });
 
+describe("coverage-aware backfill", () => {
+  it("records coverage for completed windows and skips them on the next backfill", async () => {
+    const { db, syncCoverage } = dbModule;
+    const first = await engine.runSync({ mode: "backfill", days: 45, only: ["dau"] });
+    expect(first.items[0]).toMatchObject({ dataType: "dau", status: "ok" });
+    expect(first.items[0]!.rows).toBeGreaterThan(0);
+
+    const covered = db
+      .select()
+      .from(syncCoverage)
+      .all()
+      .filter((c) => c.data_type === "dau");
+    expect(covered.length).toBeGreaterThanOrEqual(1);
+    // Today is never recorded as covered.
+    const today = new Date().toISOString().slice(0, 10);
+    for (const c of covered) expect(c.window_end < today).toBe(true);
+
+    // Second backfill over the same range only re-pulls the trailing refresh window.
+    const second = await engine.runSync({ mode: "backfill", days: 45, only: ["dau"] });
+    expect(second.items[0]!.status).toBe("ok");
+    expect(second.items[0]!.progressTotal).toBe(1);
+    expect(second.items[0]!.rows).toBeLessThan(first.items[0]!.rows);
+
+    // Forcing ignores coverage and re-pulls every window.
+    const forced = await engine.runSync({ mode: "backfill", days: 45, only: ["dau"], force: true });
+    expect(forced.items[0]!.progressTotal).toBe(2);
+  });
+
+  it("streams usage events page by page and marks each window covered", async () => {
+    const { db, syncCoverage, usageEvents } = dbModule;
+    const summary = await engine.runSync({ mode: "backfill", days: 10, only: ["usage-events"] });
+    expect(summary.items[0]).toMatchObject({ dataType: "usage-events", status: "ok" });
+    expect(db.select().from(usageEvents).all().length).toBe(summary.items[0]!.rows);
+    const covered = db
+      .select()
+      .from(syncCoverage)
+      .all()
+      .filter((c) => c.data_type === "usage-events");
+    expect(covered).toHaveLength(1);
+    expect(covered[0]!.rows).toBe(summary.items[0]!.rows);
+  });
+});
+
 describe("reconcileInterruptedRuns", () => {
   it("closes running runs left behind by a previous process", () => {
     const { db, syncRuns, syncRunItems, syncState } = dbModule;

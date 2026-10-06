@@ -13,10 +13,13 @@ import { config } from "@/lib/config";
 import { BusyError, toAppError } from "@/lib/errors";
 import { getAdminApiKey } from "@/lib/keys";
 import { logger, type Logger } from "@/lib/logger";
+import { getMetric } from "@/lib/registry";
 import { chunkWindows, createCursorClient, type CursorClient, type DateWindow } from "@/lib/cursor";
 import { ensureLiveCacheBaseline, markLiveCacheReady, shouldSkipHourlyPoll } from "./cache-policy";
+import { getCoverage, recordCoverage } from "./coverage";
 import { SYNC_JOBS } from "./jobs";
 import type { JobContext, JobProgress, SyncJob, SyncMode } from "./jobs/types";
+import { etagForWindow, planWindows } from "./plan";
 import { DEFAULT_INCREMENTAL_DAYS, getSyncConfig } from "./settings";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +37,11 @@ export interface RunSyncOptions {
   trigger?: string;
   /** Restrict to a subset of data types (defaults to all jobs). */
   only?: string[];
+  /**
+   * Backfills normally fetch only windows not yet recorded in `sync_coverage` (plus the
+   * trailing refresh days). `force` ignores coverage and re-pulls the whole range.
+   */
+  force?: boolean;
 }
 
 export interface SyncItemSummary {
@@ -207,6 +215,7 @@ interface RunPlan {
   client: CursorClient;
   useMock: boolean;
   jobs: SyncJob[];
+  force: boolean;
 }
 
 /**
@@ -254,7 +263,18 @@ export function startSync(options: RunSyncOptions = {}): StartedSync {
     ? SYNC_JOBS.filter((job) => options.only!.includes(job.dataType))
     : SYNC_JOBS;
 
-  const plan: RunPlan = { runId, mode, trigger, startedAt, range, chunks, client, useMock, jobs };
+  const plan: RunPlan = {
+    runId,
+    mode,
+    trigger,
+    startedAt,
+    range,
+    chunks,
+    client,
+    useMock,
+    jobs,
+    force: options.force ?? false,
+  };
   // Nothing before the first `await` inside executeRun reads the lock, so setting it right
   // after creating the promise is race-free within this tick.
   const promise = executeRun(plan).finally(() => {
@@ -277,16 +297,49 @@ export function runSync(options: RunSyncOptions = {}): Promise<SyncRunSummary> {
   return startSync(options).promise;
 }
 
+/** Lane key: jobs sharing a rate-limit bucket run sequentially; lanes run concurrently. */
+function laneOf(job: SyncJob): string {
+  return job.rateLimitGroup ?? getMetric(job.metricId)?.rateLimitGroup ?? "default";
+}
+
+/**
+ * Run every job, concurrently across rate-limit lanes and sequentially within one. Jobs in
+ * one lane draw from the same per-minute bucket, so running them together gains nothing;
+ * jobs in different lanes have independent buckets, so running lanes side by side turns
+ * the run's wall time from the sum of all lanes into the longest one. Results come back in
+ * the original job order so summaries are stable.
+ */
+async function runLanes(plan: RunPlan, log: Logger): Promise<SyncItemSummary[]> {
+  const lanes = new Map<string, Array<{ index: number; job: SyncJob }>>();
+  plan.jobs.forEach((job, index) => {
+    const key = laneOf(job);
+    const lane = lanes.get(key) ?? [];
+    lane.push({ index, job });
+    lanes.set(key, lane);
+  });
+  const results = new Array<SyncItemSummary>(plan.jobs.length);
+  await Promise.all(
+    [...lanes.entries()].map(async ([lane, entries]) => {
+      const laneLog = log.child({ lane });
+      for (const { index, job } of entries) {
+        results[index] = await runJob(plan, job, laneLog);
+      }
+    }),
+  );
+  return results;
+}
+
 async function executeRun(plan: RunPlan): Promise<SyncRunSummary> {
   const { runId, mode, trigger, startedAt, useMock, jobs } = plan;
   const log = logger.child({ module: "sync", mode, trigger, runId });
-  log.info({ jobs: jobs.length, chunks: plan.chunks.length, mock: useMock }, "sync run started");
+  log.info(
+    { jobs: jobs.length, chunks: plan.chunks.length, mock: useMock, force: plan.force },
+    "sync run started",
+  );
 
-  const items: SyncItemSummary[] = [];
+  let items: SyncItemSummary[] = [];
   try {
-    for (const job of jobs) {
-      items.push(await runJob(plan, job, log));
-    }
+    items = await runLanes(plan, log);
   } catch (err) {
     // Jobs are individually isolated; reaching here means the engine itself failed.
     const appError = toAppError(err);
@@ -362,6 +415,39 @@ async function runJob(plan: RunPlan, job: SyncJob, log: Logger): Promise<SyncIte
     return item;
   }
 
+  // Windowed jobs fetch only what coverage says is missing (plus the trailing refresh days);
+  // an empty plan means the range is already ingested and the job can be skipped outright.
+  const coverage = job.windowed ? getCoverage(job.dataType) : [];
+  const chunks = job.windowed
+    ? planWindows({
+        range: plan.range,
+        now: startedAt,
+        refreshDays: DEFAULT_INCREMENTAL_DAYS,
+        covered: coverage,
+        force: plan.force || mode === "incremental",
+      })
+    : plan.chunks;
+  if (job.windowed && chunks.length === 0) {
+    const item: SyncItemSummary = {
+      dataType: job.dataType,
+      label: job.label,
+      status: "skipped",
+      rows: 0,
+      durationMs: 0,
+      progressMessage: "Already covered: nothing to fetch for this range",
+    };
+    recordRunItem(runId, item);
+    writeState(job, {
+      status: "ok",
+      watermark: prev?.watermark ?? null,
+      etag: prev?.etag ?? null,
+      error: null,
+      runId,
+      syncedAt: prev?.last_synced_at ?? startedAt,
+    });
+    return item;
+  }
+
   const jobStarted = Date.now();
   let progressRows = 0;
   let progressCurrent: number | undefined;
@@ -398,11 +484,14 @@ async function runJob(plan: RunPlan, job: SyncJob, log: Logger): Promise<SyncIte
       client: plan.client,
       mode,
       range: plan.range,
-      chunks: plan.chunks,
+      chunks,
       prev,
       now: startedAt,
       log: log.child({ dataType: job.dataType }),
       reportProgress: recordProgress,
+      markCovered: (window, info) =>
+        void recordCoverage(job.dataType, window, { now: startedAt, runId, ...info }),
+      etagFor: (window) => etagForWindow(coverage, window, startedAt),
     };
     const result = await job.run(ctx);
     const item: SyncItemSummary = {

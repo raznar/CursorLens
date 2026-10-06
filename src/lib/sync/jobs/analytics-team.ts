@@ -65,9 +65,19 @@ function lineColumns(r: AgentEditsRow | TabsRow) {
 }
 
 /**
+ * ETag to send for a window: the one stored with its coverage row when the same window was
+ * ingested before, else (single-window runs) the data type's last ETag from `sync_state`.
+ */
+function windowEtag(ctx: JobContext, chunk: { start: Date; end: Date }): string | undefined {
+  return (
+    ctx.etagFor(chunk) ?? (ctx.chunks.length === 1 ? (ctx.prev?.etag ?? undefined) : undefined)
+  );
+}
+
+/**
  * Factory for the common team analytics shape: a single GET returning `{ data: Row[] }` per
- * ≤30-day window, ETag-threaded when the run is a single window. `mapRows` transforms the
- * day rows (it may explode them, e.g. models) into upsertable rows for `table`.
+ * ≤30-day window, ETag-threaded per window (304s are free against the rate limit). `mapRows`
+ * transforms the day rows (it may explode them, e.g. models) into upsertable rows for `table`.
  */
 function teamDailyJob<Row, Tbl extends SQLiteTable>(config: {
   metricId: string;
@@ -82,9 +92,10 @@ function teamDailyJob<Row, Tbl extends SQLiteTable>(config: {
     metricId: config.metricId,
     label: metric?.label ?? config.metricId,
     enterpriseOnly: metric?.enterpriseOnly,
+    windowed: true,
+    rateLimitGroup: metric?.rateLimitGroup,
     run: async (ctx: JobContext): Promise<JobResult> => {
       const endpoint = getMetric(config.metricId)!.endpoint;
-      const useEtag = ctx.chunks.length === 1;
       let rows = 0;
       let watermark: string | undefined;
       let etag: string | undefined;
@@ -104,14 +115,16 @@ function teamDailyJob<Row, Tbl extends SQLiteTable>(config: {
           rows,
           message: `Fetching ${metric?.label ?? config.metricId} window ${index + 1}/${chunkTotal}: ${label}`,
         });
+        const sentEtag = windowEtag(ctx, chunk);
         const res = await ctx.client.analytics.team(
           endpoint,
           config.schema,
           { start: chunk.start, end: chunk.end },
-          useEtag ? (ctx.prev?.etag ?? undefined) : undefined,
+          sentEtag,
         );
         if (res.notModified) {
-          etag = ctx.prev?.etag ?? etag;
+          etag = sentEtag ?? etag;
+          ctx.markCovered(chunk, { etag: sentEtag });
           ctx.reportProgress({
             current: index + 1,
             total: chunkTotal,
@@ -127,6 +140,7 @@ function teamDailyJob<Row, Tbl extends SQLiteTable>(config: {
         const wm = config.watermark?.(data.data);
         if (wm && (!watermark || wm > watermark)) watermark = wm;
         if (res.etag) etag = res.etag;
+        ctx.markCovered(chunk, { etag: res.etag, rows: written });
         ctx.reportProgress({
           current: index + 1,
           total: chunkTotal,
@@ -337,24 +351,29 @@ const conversationInsightsJob: SyncJob = {
   metricId: "conversation-insights",
   label: getMetric("conversation-insights")?.label ?? "Conversation insights",
   enterpriseOnly: true,
+  windowed: true,
+  rateLimitGroup: "analyticsConversationInsights",
   run: async (ctx) => {
-    const useEtag = ctx.chunks.length === 1;
     let rows = 0;
     let etag: string | undefined;
     let modified = false;
     for (const chunk of ctx.chunks) {
+      const sentEtag = windowEtag(ctx, chunk);
       const res = await ctx.client.analytics.conversationInsights(
         ConversationInsightsResponseSchema,
         { start: chunk.start, end: chunk.end },
-        useEtag ? (ctx.prev?.etag ?? undefined) : undefined,
+        sentEtag,
       );
       if (res.notModified) {
-        etag = ctx.prev?.etag ?? etag;
+        etag = sentEtag ?? etag;
+        ctx.markCovered(chunk, { etag: sentEtag });
         continue;
       }
       modified = true;
-      rows += upsertRows(analyticsConversationInsights, insightRows(res.data?.data));
+      const written = upsertRows(analyticsConversationInsights, insightRows(res.data?.data));
+      rows += written;
       if (res.etag) etag = res.etag;
+      ctx.markCovered(chunk, { etag: res.etag, rows: written });
     }
     return { rows, etag, notModified: !modified };
   },
@@ -365,6 +384,7 @@ const leaderboardJob: SyncJob = {
   metricId: "leaderboard",
   label: getMetric("leaderboard")?.label ?? "Leaderboard",
   enterpriseOnly: true,
+  rateLimitGroup: "analyticsTeam",
   run: async (ctx) => {
     // Leaderboard rankings are period-aggregate (no date dimension), so query one window
     // covering the most recent ≤30 days of the run's range.
@@ -408,6 +428,8 @@ const bugbotJob: SyncJob = {
   metricId: "bugbot",
   label: getMetric("bugbot")?.label ?? "BugBot",
   enterpriseOnly: true,
+  windowed: true,
+  rateLimitGroup: "analyticsTeam",
   run: async (ctx) => {
     let total = 0;
     let maxTs = 0;
@@ -447,6 +469,7 @@ const bugbotJob: SyncJob = {
       });
       const written = upsertRows(analyticsBugbot, rows);
       total += written;
+      ctx.markCovered(chunk, { rows: written });
       ctx.reportProgress({
         current: index + 1,
         total: chunkTotal,
