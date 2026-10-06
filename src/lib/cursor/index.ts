@@ -95,8 +95,21 @@ export function createCursorClient(options: CursorClientOptions = {}): CursorCli
 
 export { CursorHttp, parseRetryAfterMs } from "./client";
 export type { ApiResult, CursorClientOptions, FetchLike, RequestSpec } from "./client";
-export { createLimiters, schedule, disposeLimiters, type Limiters } from "./ratelimit";
-export { chunkWindows, MAX_WINDOW_DAYS, type DateWindow } from "./windows";
+export {
+  createLimiters,
+  schedule,
+  disposeLimiters,
+  getSharedLimiters,
+  resetSharedLimiters,
+  type Limiters,
+} from "./ratelimit";
+export {
+  chunkWindows,
+  startOfUtcDay,
+  endOfUtcDay,
+  MAX_WINDOW_DAYS,
+  type DateWindow,
+} from "./windows";
 export { collectPages, collectByUserPages, hasNextPage, MAX_PAGES } from "./pagination";
 export { createMockFetch, MOCK_USERS } from "./mock";
 export type { AdminWindow, AuditLogsQuery, SpendResult, UsageEventsQuery } from "./admin";

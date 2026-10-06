@@ -24,14 +24,20 @@ import {
   type UsageEvent,
 } from "./types";
 
-/** Default page size for paginated admin endpoints (servers cap as needed). */
-const PAGE_SIZE = 500;
+/**
+ * Page sizes per the Admin API docs: `filtered-usage-events` allows up to 1000, `audit-logs`
+ * up to 500, `daily-usage-data` documents a 1000 example; `spend` documents no cap.
+ */
+export const SPEND_PAGE_SIZE = 500;
+export const DAILY_USAGE_PAGE_SIZE = 1000;
+export const USAGE_EVENTS_PAGE_SIZE = 1000;
+export const AUDIT_LOGS_PAGE_SIZE = 500;
 
 export async function getMembers(http: CursorHttp): Promise<TeamMember[]> {
   const res = await http.request({
     method: "GET",
     path: "/teams/members",
-    group: "adminGeneral",
+    group: "adminMembers",
     schema: TeamMembersResponseSchema,
   });
   return res.data?.teamMembers ?? [];
@@ -42,14 +48,14 @@ export interface SpendResult {
   subscriptionCycleStart?: number;
 }
 
-export async function getSpend(http: CursorHttp, pageSize = PAGE_SIZE): Promise<SpendResult> {
+export async function getSpend(http: CursorHttp, pageSize = SPEND_PAGE_SIZE): Promise<SpendResult> {
   let subscriptionCycleStart: number | undefined;
   const rows = await collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/spend",
-        group: "adminGeneral",
+        group: "adminSpend",
         body: { page, pageSize, sortBy: "amount", sortDirection: "desc" },
         schema: SpendResponseSchema,
       });
@@ -74,14 +80,14 @@ export interface AdminWindow {
 export async function getDailyUsage(
   http: CursorHttp,
   window: AdminWindow,
-  pageSize = PAGE_SIZE,
+  pageSize = DAILY_USAGE_PAGE_SIZE,
 ): Promise<DailyUsageRow[]> {
   return collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/daily-usage-data",
-        group: "adminGeneral",
+        group: "adminDailyUsage",
         body: { startDate: window.startDate, endDate: window.endDate, page, pageSize },
         schema: DailyUsageResponseSchema,
       });
@@ -100,14 +106,14 @@ export interface UsageEventsQuery extends AdminWindow {
 export async function getUsageEvents(
   http: CursorHttp,
   query: UsageEventsQuery,
-  pageSize = PAGE_SIZE,
+  pageSize = USAGE_EVENTS_PAGE_SIZE,
 ): Promise<UsageEvent[]> {
   return collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/filtered-usage-events",
-        group: "adminGeneral",
+        group: "adminUsageEvents",
         body: {
           startDate: query.startDate,
           endDate: query.endDate,
@@ -137,14 +143,14 @@ export interface AuditLogsQuery {
 export async function getAuditLogs(
   http: CursorHttp,
   query: AuditLogsQuery,
-  pageSize = PAGE_SIZE,
+  pageSize = AUDIT_LOGS_PAGE_SIZE,
 ): Promise<AuditLogEvent[]> {
   return collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "GET",
         path: "/teams/audit-logs",
-        group: "adminGeneral",
+        group: "adminAuditLogs",
         query: {
           startTime: query.startTime,
           endTime: query.endTime,

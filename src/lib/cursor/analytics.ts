@@ -26,9 +26,10 @@ export interface DateRange {
 /** The `include` slices required by the conversation-insights endpoint. */
 export const CONVERSATION_INCLUDE = "intents,complexity,categories,guidanceLevels,workTypes";
 
-const BY_USER_PAGE_SIZE = 200;
-const LEADERBOARD_PAGE_SIZE = 100;
-const BUGBOT_PAGE_SIZE = 100;
+/** Documented maxima: by-user 500 users/page, leaderboard 500, bugbot 250. */
+export const BY_USER_PAGE_SIZE = 500;
+export const LEADERBOARD_PAGE_SIZE = 500;
+export const BUGBOT_PAGE_SIZE = 250;
 
 /**
  * Fetch a single-request team analytics metric, threading ETag / `If-None-Match`.
