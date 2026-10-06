@@ -8,7 +8,14 @@
 import type { z } from "zod";
 import { toApiDate } from "@/lib/date-range";
 import type { ApiResult, CursorHttp } from "./client";
-import { collectByUserPages, collectPages, hasNextPage, MAX_PAGES } from "./pagination";
+import {
+  collectByUserPages,
+  collectPages,
+  hasNextPage,
+  MAX_PAGES,
+  streamByUserPages,
+  type ByUserPageBatch,
+} from "./pagination";
 import {
   BugbotResponseSchema,
   ConversationInsightsResponseSchema,
@@ -141,9 +148,33 @@ interface ByUserEnvelope<R> {
 }
 
 /**
- * Fetch a by-user metric, following pagination and merging every page's `{ email: rows }`
- * map. `R` (the row type) is supplied by the caller; the response schema validates shape.
+ * Stream a by-user metric one page at a time (each page is a `{ email: rows }` map for a
+ * disjoint set of users). `R` (the row type) is supplied by the caller; the response schema
+ * validates shape.
  */
+export function streamByUserData<R>(
+  http: CursorHttp,
+  path: string,
+  schema: z.ZodTypeAny,
+  range: DateRange,
+  pageSize = BY_USER_PAGE_SIZE,
+): AsyncGenerator<ByUserPageBatch<R>> {
+  return streamByUserPages<R>({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path,
+        group: "analyticsByUser",
+        schema,
+        query: { startDate: toApiDate(range.start), endDate: toApiDate(range.end), page, pageSize },
+      });
+      return res.data as ByUserEnvelope<R>;
+    },
+    pageSize,
+  });
+}
+
+/** Fetch a by-user metric, following pagination and merging every page's map. */
 export async function getByUserData<R>(
   http: CursorHttp,
   path: string,
@@ -162,5 +193,6 @@ export async function getByUserData<R>(
       });
       return res.data as ByUserEnvelope<R>;
     },
+    pageSize,
   });
 }

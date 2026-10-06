@@ -1,6 +1,8 @@
 /**
- * Typed wrappers for the five Admin API endpoints. Each returns plain data (pagination is
- * followed to completion here); the sync engine handles 30-day windowing and persistence.
+ * Typed wrappers for the Admin API endpoints. Windowed, high-volume endpoints expose a
+ * `stream*` variant that yields one page at a time (see `pagination.ts`) so the sync engine
+ * can persist each page as it lands; the `get*` variants collect everything into an array.
+ * The sync engine handles 30-day windowing and persistence.
  *
  * Endpoints:
  *  - GET  /teams/members              (roster, not paginated)
@@ -10,7 +12,7 @@
  *  - GET  /teams/audit-logs           (security events, paginated)
  */
 import type { CursorHttp } from "./client";
-import { collectPages } from "./pagination";
+import { collectPages, streamPages, type PageBatch } from "./pagination";
 import {
   AuditLogsResponseSchema,
   DailyUsageResponseSchema,
@@ -66,6 +68,7 @@ export async function getSpend(http: CursorHttp, pageSize = SPEND_PAGE_SIZE): Pr
       return d.teamMemberSpend;
     },
     getPagination: (d) => ({ totalPages: d.totalPages ?? undefined }),
+    pageSize,
   });
   return { rows, subscriptionCycleStart };
 }
@@ -77,12 +80,12 @@ export interface AdminWindow {
   endDate: number;
 }
 
-export async function getDailyUsage(
+export function streamDailyUsage(
   http: CursorHttp,
   window: AdminWindow,
   pageSize = DAILY_USAGE_PAGE_SIZE,
-): Promise<DailyUsageRow[]> {
-  return collectPages({
+): AsyncGenerator<PageBatch<DailyUsageRow>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
@@ -95,7 +98,16 @@ export async function getDailyUsage(
     },
     getItems: (d) => d.data,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getDailyUsage(
+  http: CursorHttp,
+  window: AdminWindow,
+  pageSize = DAILY_USAGE_PAGE_SIZE,
+): Promise<DailyUsageRow[]> {
+  return collectBatches(streamDailyUsage(http, window, pageSize));
 }
 
 export interface UsageEventsQuery extends AdminWindow {
@@ -103,12 +115,12 @@ export interface UsageEventsQuery extends AdminWindow {
   userId?: number;
 }
 
-export async function getUsageEvents(
+export function streamUsageEvents(
   http: CursorHttp,
   query: UsageEventsQuery,
   pageSize = USAGE_EVENTS_PAGE_SIZE,
-): Promise<UsageEvent[]> {
-  return collectPages({
+): AsyncGenerator<PageBatch<UsageEvent>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
@@ -128,7 +140,16 @@ export async function getUsageEvents(
     },
     getItems: (d) => d.usageEvents,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getUsageEvents(
+  http: CursorHttp,
+  query: UsageEventsQuery,
+  pageSize = USAGE_EVENTS_PAGE_SIZE,
+): Promise<UsageEvent[]> {
+  return collectBatches(streamUsageEvents(http, query, pageSize));
 }
 
 export interface AuditLogsQuery {
@@ -140,12 +161,12 @@ export interface AuditLogsQuery {
   search?: string;
 }
 
-export async function getAuditLogs(
+export function streamAuditLogs(
   http: CursorHttp,
   query: AuditLogsQuery,
   pageSize = AUDIT_LOGS_PAGE_SIZE,
-): Promise<AuditLogEvent[]> {
-  return collectPages({
+): AsyncGenerator<PageBatch<AuditLogEvent>> {
+  return streamPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "GET",
@@ -165,5 +186,20 @@ export async function getAuditLogs(
     },
     getItems: (d) => d.events,
     getPagination: (d) => d.pagination,
+    pageSize,
   });
+}
+
+export async function getAuditLogs(
+  http: CursorHttp,
+  query: AuditLogsQuery,
+  pageSize = AUDIT_LOGS_PAGE_SIZE,
+): Promise<AuditLogEvent[]> {
+  return collectBatches(streamAuditLogs(http, query, pageSize));
+}
+
+async function collectBatches<T>(batches: AsyncGenerator<PageBatch<T>>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const batch of batches) items.push(...batch.items);
+  return items;
 }
