@@ -44,3 +44,11 @@ db                ->  shared lib only        (never cursor / sync / ui)
 - Respect Cursor API rate limits (see `sync-and-rate-limits`). Never hammer the API; the
   dashboard reads from SQLite, not the live API.
 - Set `CURSOR_MOCK=1` to develop/test against bundled fixtures with no live key.
+
+## Cursor Cloud specific instructions
+
+- This app requires **Node.js 24** (see `.nvmrc`). The agent runtime's `node` may be Node 22 at `/exec-daemon/node`. Node 24.21.0 is installed under `/usr/local`; use `export PATH="/usr/local/bin:$PATH"` before `npm` or `node`.
+- On Linux, `npm ci` fails because the lockfile omits optional `@emnapi/*` packages. Install with `npm ci || npm install` (the same fallback as the Dockerfile). That rewrites `package-lock.json` on disk; leave that rewrite uncommitted unless you intend to refresh the lockfile.
+- Live Cursor keys are optional. If `.env` is missing, create it with `CURSOR_LENS_SECRET` (`openssl rand -hex 32`) and `CURSOR_MOCK=1`, then `npm run db:migrate` and `npm run sync -- --backfill --days 14`.
+- Dashboards do not render fixture rows. Without a live Admin key and a non-mock sync, pages show "No live data loaded". Mock mode still runs ingestion: Settings shows "Mock mode active", and `POST /api/sync` records runs in SQLite.
+- Dev server: `npm run dev -- --hostname 0.0.0.0 --port 3000`. `npm run verify` is the full gate.
