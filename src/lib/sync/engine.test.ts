@@ -101,6 +101,61 @@ describe("coverage-aware backfill", () => {
   });
 });
 
+describe("new endpoint jobs (mock fixtures)", () => {
+  it("ingests bugbot reviews, billing groups, directory groups, and AI code tracking", async () => {
+    const {
+      db,
+      analyticsBugbotReviews,
+      analyticsBugbotReviewFindings,
+      billingGroups,
+      billingGroupMembers,
+      billingGroupDailySpend,
+      directoryGroups,
+      directoryGroupMembers,
+      aiCodeCommits,
+      aiCodeChanges,
+      aiCodeChangeFiles,
+    } = dbModule;
+    const only = [
+      "bugbot-reviews",
+      "billing-groups",
+      "directory-groups",
+      "ai-code-commits",
+      "ai-code-changes",
+    ];
+    const summary = await engine.runSync({ mode: "backfill", days: 40, only });
+    expect(summary.status).toBe("ok");
+    expect(summary.items.map((i) => i.dataType).sort()).toEqual([...only].sort());
+
+    expect(db.select().from(analyticsBugbotReviews).all().length).toBeGreaterThan(0);
+    const dry = db
+      .select()
+      .from(analyticsBugbotReviews)
+      .all()
+      .filter((r) => r.dry_run);
+    expect(dry.length).toBeGreaterThan(0);
+    expect(db.select().from(analyticsBugbotReviewFindings).all().length).toBeGreaterThan(0);
+
+    const groups = db.select().from(billingGroups).all();
+    expect(groups.some((g) => g.is_unassigned)).toBe(true);
+    // Backfill over 40 days reaches at least two billing cycles.
+    expect(new Set(groups.map((g) => g.cycle_start)).size).toBeGreaterThanOrEqual(2);
+    expect(db.select().from(billingGroupMembers).all().length).toBeGreaterThan(0);
+    expect(db.select().from(billingGroupDailySpend).all().length).toBeGreaterThan(0);
+
+    expect(db.select().from(directoryGroups).all()).toHaveLength(2);
+    expect(db.select().from(directoryGroupMembers).all()).toHaveLength(5);
+
+    const commits = db.select().from(aiCodeCommits).all();
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits.every((c) => c.commit_day && /^\d{4}-\d{2}-\d{2}$/.test(c.commit_day))).toBe(
+      true,
+    );
+    expect(db.select().from(aiCodeChanges).all().length).toBeGreaterThan(0);
+    expect(db.select().from(aiCodeChangeFiles).all().length).toBeGreaterThan(0);
+  });
+});
+
 describe("reconcileInterruptedRuns", () => {
   it("closes running runs left behind by a previous process", () => {
     const { db, syncRuns, syncRunItems, syncState } = dbModule;

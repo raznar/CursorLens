@@ -401,6 +401,169 @@ export const BugbotResponseSchema = z.object({
 });
 export type BugbotRow = z.infer<typeof BugbotRowSchema>;
 
+/** `/analytics/team/bugbot-reviews` — one item per completed review (posted or dry-run). */
+const BugbotFindingLocationSchema = z.object({
+  file: z.string().nullish(),
+  start_line: z.number().nullish(),
+  end_line: z.number().nullish(),
+});
+export const BugbotReviewFindingSchema = z.object({
+  /** Posted findings only; `null` for dry-run findings. */
+  comment_id: z.union([z.string(), z.number()]).nullish(),
+  resolution_status: z.string().nullish(),
+  severity: z.string().nullish(),
+  /** Dry-run findings carry the content instead of a comment id. */
+  title: z.string().nullish(),
+  description: z.string().nullish(),
+  locations: z.array(BugbotFindingLocationSchema).nullish(),
+});
+export const BugbotReviewSchema = z.object({
+  request_id: z.string(),
+  timestamp: numericString.nullish(),
+  repo: z.string().nullish(),
+  repo_node_id: z.string().nullish(),
+  pr_number: z.number().nullish(),
+  commit_sha: z.string().nullish(),
+  bugs_found: z.number().nullish(),
+  /** Null when the review is not billed separately. */
+  cost_cents: z.number().nullish(),
+  dry_run: z.boolean().nullish(),
+  publication_status: z.string().nullish(),
+  bugs: z.array(BugbotReviewFindingSchema).nullish(),
+});
+export const BugbotReviewsResponseSchema = z.object({
+  data: z.array(BugbotReviewSchema),
+  pagination: PaginationSchema.optional(),
+  params: AnalyticsParamsSchema,
+});
+export type BugbotReview = z.infer<typeof BugbotReviewSchema>;
+export type BugbotReviewFinding = z.infer<typeof BugbotReviewFindingSchema>;
+
+// ---------------------------------------------------------------------------
+// Admin API — billing groups + Team directory groups
+// ---------------------------------------------------------------------------
+
+const GroupDailySpendSchema = z.object({ date: z.string(), spendCents: z.number().nullish() });
+export const BillingGroupMemberSchema = z.object({
+  userId: ApiUserIdSchema,
+  name: z.string().nullish(),
+  email: z.string().nullish(),
+  joinedAt: z.string().nullish(),
+  leftAt: z.string().nullish(),
+  spendCents: z.number().nullish(),
+  dailySpend: z.array(GroupDailySpendSchema).nullish(),
+});
+/** `/teams/groups` item — a billing group with cycle spend, members, and a daily series. */
+export const BillingGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string().nullish(),
+  directoryGroupId: z.string().nullish(),
+  memberCount: z.number().nullish(),
+  createdAt: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+  spendCents: z.number().nullish(),
+  currentMembers: z.array(BillingGroupMemberSchema).nullish(),
+  formerMembers: z.array(BillingGroupMemberSchema).nullish(),
+  dailySpend: z.array(GroupDailySpendSchema).nullish(),
+});
+export const BillingGroupsResponseSchema = z.object({
+  groups: z.array(BillingGroupSchema),
+  unassignedGroup: BillingGroupSchema.nullish(),
+  billingCycle: z
+    .object({ cycleStart: z.string().nullish(), cycleEnd: z.string().nullish() })
+    .nullish(),
+});
+export type BillingGroup = z.infer<typeof BillingGroupSchema>;
+export type BillingGroupMember = z.infer<typeof BillingGroupMemberSchema>;
+export type BillingGroupsResponse = z.infer<typeof BillingGroupsResponseSchema>;
+
+/** `/teams/directory-groups` — Team directory groups (`team_group_…` ids). */
+export const DirectoryGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  memberCount: z.number().nullish(),
+  monthlySpendingLimitDollars: z.number().nullish(),
+  createdAt: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+});
+export const DirectoryGroupsResponseSchema = z.object({
+  groups: z.array(DirectoryGroupSchema),
+  pagination: PaginationSchema.optional(),
+});
+export const DirectoryGroupMemberSchema = z.object({
+  userId: ApiUserIdSchema,
+  name: z.string().nullish(),
+  email: z.string().nullish(),
+  joinedAt: z.string().nullish(),
+});
+export const DirectoryGroupMembersResponseSchema = z.object({
+  members: z.array(DirectoryGroupMemberSchema),
+  pagination: PaginationSchema.optional(),
+});
+export type DirectoryGroup = z.infer<typeof DirectoryGroupSchema>;
+export type DirectoryGroupMember = z.infer<typeof DirectoryGroupMemberSchema>;
+
+// ---------------------------------------------------------------------------
+// AI Code Tracking API (Enterprise alpha) — `{ items, totalCount, page, pageSize }` envelope
+// ---------------------------------------------------------------------------
+
+export const AiCodeCommitSchema = z.object({
+  commitHash: z.string(),
+  userId: z.string().nullish(),
+  userEmail: z.string().nullish(),
+  repoName: z.string().nullish(),
+  branchName: z.string().nullish(),
+  isPrimaryBranch: z.boolean().nullish(),
+  /** `ide` | `cli` | `cloud`. */
+  commitSource: z.string().nullish(),
+  totalLinesAdded: z.number().nullish(),
+  totalLinesDeleted: z.number().nullish(),
+  tabLinesAdded: z.number().nullish(),
+  tabLinesDeleted: z.number().nullish(),
+  composerLinesAdded: z.number().nullish(),
+  composerLinesDeleted: z.number().nullish(),
+  nonAiLinesAdded: z.number().nullish(),
+  nonAiLinesDeleted: z.number().nullish(),
+  message: z.string().nullish(),
+  commitTs: z.string().nullish(),
+  createdAt: z.string().nullish(),
+});
+export const AiCodeCommitsResponseSchema = z.object({
+  items: z.array(AiCodeCommitSchema),
+  totalCount: z.number().nullish(),
+  page: z.number().nullish(),
+  pageSize: z.number().nullish(),
+});
+export type AiCodeCommit = z.infer<typeof AiCodeCommitSchema>;
+
+export const AiCodeChangeFileSchema = z.object({
+  /** Omitted in privacy mode. */
+  fileName: z.string().nullish(),
+  fileExtension: z.string().nullish(),
+  linesAdded: z.number().nullish(),
+  linesDeleted: z.number().nullish(),
+});
+export const AiCodeChangeSchema = z.object({
+  changeId: z.string(),
+  userId: z.string().nullish(),
+  userEmail: z.string().nullish(),
+  /** `TAB` | `COMPOSER`. */
+  source: z.string().nullish(),
+  model: z.string().nullish(),
+  totalLinesAdded: z.number().nullish(),
+  totalLinesDeleted: z.number().nullish(),
+  createdAt: z.string().nullish(),
+  metadata: z.array(AiCodeChangeFileSchema).nullish(),
+});
+export const AiCodeChangesResponseSchema = z.object({
+  items: z.array(AiCodeChangeSchema),
+  totalCount: z.number().nullish(),
+  page: z.number().nullish(),
+  pageSize: z.number().nullish(),
+});
+export type AiCodeChange = z.infer<typeof AiCodeChangeSchema>;
+
 // ---------------------------------------------------------------------------
 // Analytics API — by user (data keyed by email)
 // ---------------------------------------------------------------------------

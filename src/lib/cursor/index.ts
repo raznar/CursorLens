@@ -15,7 +15,10 @@ import { CursorHttp, type ApiResult, type CursorClientOptions } from "./client";
 import { createMockFetch } from "./mock";
 import {
   getAuditLogs,
+  getBillingGroups,
   getDailyUsage,
+  getDirectoryGroupMembers,
+  getDirectoryGroups,
   getMembers,
   getSpend,
   getUsageEvents,
@@ -33,12 +36,27 @@ import {
   getConversationInsights,
   getLeaderboard,
   getTeamMetric,
+  streamBugbotReviews,
   streamByUserData,
+  type BugbotReviewsQuery,
   type DateRange,
   type LeaderboardResult,
 } from "./analytics";
+import { streamAiCodeChanges, streamAiCodeCommits, type AiCodeQuery } from "./ai-code";
 import type { ByUserPageBatch, PageBatch } from "./pagination";
-import type { AuditLogEvent, BugbotRow, DailyUsageRow, TeamMember, UsageEvent } from "./types";
+import type {
+  AiCodeChange,
+  AiCodeCommit,
+  AuditLogEvent,
+  BillingGroupsResponse,
+  BugbotReview,
+  BugbotRow,
+  DailyUsageRow,
+  DirectoryGroup,
+  DirectoryGroupMember,
+  TeamMember,
+  UsageEvent,
+} from "./types";
 import type { z } from "zod";
 
 export interface CursorClient {
@@ -54,6 +72,13 @@ export interface CursorClient {
     dailyUsagePages(window: AdminWindow): AsyncGenerator<PageBatch<DailyUsageRow>>;
     usageEventPages(query: UsageEventsQuery): AsyncGenerator<PageBatch<UsageEvent>>;
     auditLogPages(query: AuditLogsQuery): AsyncGenerator<PageBatch<AuditLogEvent>>;
+    billingGroups(billingCycle?: string): Promise<BillingGroupsResponse>;
+    directoryGroups(): Promise<DirectoryGroup[]>;
+    directoryGroupMembers(groupId: string): Promise<DirectoryGroupMember[]>;
+  };
+  readonly aiCode: {
+    commitPages(range: DateRange, opts?: AiCodeQuery): AsyncGenerator<PageBatch<AiCodeCommit>>;
+    changePages(range: DateRange, opts?: AiCodeQuery): AsyncGenerator<PageBatch<AiCodeChange>>;
   };
   readonly analytics: {
     team<T>(
@@ -72,6 +97,10 @@ export interface CursorClient {
       range: DateRange,
       opts?: { prState?: "merged" | "all"; repo?: string },
     ): Promise<BugbotRow[]>;
+    bugbotReviewPages(
+      range: DateRange,
+      opts?: BugbotReviewsQuery,
+    ): AsyncGenerator<PageBatch<BugbotReview>>;
     byUser<R>(path: string, schema: z.ZodTypeAny, range: DateRange): Promise<Record<string, R[]>>;
     byUserPages<R>(
       path: string,
@@ -98,6 +127,13 @@ export function createCursorClient(options: CursorClientOptions = {}): CursorCli
       dailyUsagePages: (window) => streamDailyUsage(http, window),
       usageEventPages: (query) => streamUsageEvents(http, query),
       auditLogPages: (query) => streamAuditLogs(http, query),
+      billingGroups: (billingCycle) => getBillingGroups(http, billingCycle),
+      directoryGroups: () => getDirectoryGroups(http),
+      directoryGroupMembers: (groupId) => getDirectoryGroupMembers(http, groupId),
+    },
+    aiCode: {
+      commitPages: (range, opts) => streamAiCodeCommits(http, range, opts),
+      changePages: (range, opts) => streamAiCodeChanges(http, range, opts),
     },
     analytics: {
       team: (path, schema, range, etag) => getTeamMetric(http, path, schema, range, etag),
@@ -105,6 +141,7 @@ export function createCursorClient(options: CursorClientOptions = {}): CursorCli
         getConversationInsights(http, schema, range, etag),
       leaderboard: (range) => getLeaderboard(http, range),
       bugbot: (range, opts) => getBugbot(http, range, opts),
+      bugbotReviewPages: (range, opts) => streamBugbotReviews(http, range, opts),
       byUser: (path, schema, range) => getByUserData(http, path, schema, range),
       byUserPages: (path, schema, range) => streamByUserData(http, path, schema, range),
     },
@@ -142,5 +179,11 @@ export {
 } from "./pagination";
 export { createMockFetch, MOCK_USERS } from "./mock";
 export type { AdminWindow, AuditLogsQuery, SpendResult, UsageEventsQuery } from "./admin";
-export { CONVERSATION_INCLUDE, type DateRange, type LeaderboardResult } from "./analytics";
+export {
+  CONVERSATION_INCLUDE,
+  type BugbotReviewsQuery,
+  type DateRange,
+  type LeaderboardResult,
+} from "./analytics";
+export { AI_CODE_PAGE_SIZE, type AiCodeQuery } from "./ai-code";
 export * from "./types";

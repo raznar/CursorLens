@@ -32,6 +32,8 @@ import {
   analyticsAgentEdits,
   analyticsAskMode,
   analyticsBugbot,
+  analyticsBugbotReviewFindings,
+  analyticsBugbotReviews,
   analyticsClientVersions,
   analyticsCommands,
   analyticsConversationInsights,
@@ -481,6 +483,85 @@ const bugbotJob: SyncJob = {
   },
 };
 
+/** `/analytics/team/bugbot-reviews` — per-review cost + findings, streamed per page. */
+const bugbotReviewsJob: SyncJob = {
+  dataType: "bugbot-reviews",
+  metricId: "bugbot-reviews",
+  label: getMetric("bugbot-reviews")?.label ?? "BugBot reviews",
+  enterpriseOnly: true,
+  windowed: true,
+  rateLimitGroup: "analyticsTeam",
+  run: async (ctx) => {
+    let total = 0;
+    let maxTs = 0;
+    const chunkTotal = ctx.chunks.length;
+    for (const [index, chunk] of ctx.chunks.entries()) {
+      const label = windowLabel(chunk.start, chunk.end);
+      let windowRows = 0;
+      ctx.reportProgress({
+        current: index,
+        total: chunkTotal,
+        rows: total,
+        message: `Fetching BugBot reviews window ${index + 1}/${chunkTotal}: ${label}`,
+      });
+      for await (const page of ctx.client.analytics.bugbotReviewPages({
+        start: chunk.start,
+        end: chunk.end,
+      })) {
+        const reviews: Array<typeof analyticsBugbotReviews.$inferInsert> = [];
+        const findings: Array<typeof analyticsBugbotReviewFindings.$inferInsert> = [];
+        for (const r of page.items) {
+          const ts = parseTimestamp(r.timestamp);
+          if (ts && ts > maxTs) maxTs = ts;
+          reviews.push({
+            request_id: r.request_id,
+            timestamp: ts,
+            repo: r.repo ?? null,
+            repo_node_id: r.repo_node_id ?? null,
+            pr_number: r.pr_number ?? null,
+            commit_sha: r.commit_sha ?? null,
+            bugs_found: r.bugs_found ?? null,
+            cost_cents: r.cost_cents ?? null,
+            dry_run: r.dry_run ?? null,
+            publication_status: r.publication_status ?? null,
+          });
+          (r.bugs ?? []).forEach((b, idx) =>
+            findings.push({
+              request_id: r.request_id,
+              idx,
+              comment_id: b.comment_id == null ? null : String(b.comment_id),
+              resolution_status: b.resolution_status ?? null,
+              severity: b.severity ?? null,
+              title: b.title ?? null,
+              description: b.description ?? null,
+              locations: b.locations ? JSON.stringify(b.locations) : null,
+            }),
+          );
+        }
+        const written =
+          upsertRows(analyticsBugbotReviews, reviews) +
+          upsertRows(analyticsBugbotReviewFindings, findings);
+        windowRows += written;
+        total += written;
+        ctx.reportProgress({
+          current: index,
+          total: chunkTotal,
+          rows: total,
+          message: `Window ${index + 1}/${chunkTotal} (${label}): page ${page.page}${page.totalPages ? `/${page.totalPages}` : ""}, ${windowRows.toLocaleString()} BugBot review rows written`,
+        });
+      }
+      ctx.markCovered(chunk, { rows: windowRows });
+      ctx.reportProgress({
+        current: index + 1,
+        total: chunkTotal,
+        rows: total,
+        message: `Inserted ${windowRows.toLocaleString()} BugBot review rows from ${label}`,
+      });
+    }
+    return { rows: total, watermark: maxTs ? String(maxTs) : undefined };
+  },
+};
+
 export const analyticsTeamJobs: SyncJob[] = [
   dauJob,
   modelsJob,
@@ -496,4 +577,5 @@ export const analyticsTeamJobs: SyncJob[] = [
   conversationInsightsJob,
   leaderboardJob,
   bugbotJob,
+  bugbotReviewsJob,
 ];

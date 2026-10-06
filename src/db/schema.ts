@@ -376,6 +376,217 @@ export const analyticsBugbot = sqliteTable(
   (t) => [primaryKey({ columns: [t.repo, t.pr_number] })],
 );
 
+/** `/analytics/team/bugbot-reviews` — one row per completed review (posted or dry-run). */
+export const analyticsBugbotReviews = sqliteTable(
+  "analytics_bugbot_reviews",
+  {
+    request_id: text("request_id").primaryKey(),
+    timestamp: integer("timestamp"),
+    repo: text("repo"),
+    repo_node_id: text("repo_node_id"),
+    pr_number: integer("pr_number"),
+    commit_sha: text("commit_sha"),
+    bugs_found: integer("bugs_found"),
+    /** Billed cost in fractional cents; null when not billed separately. */
+    cost_cents: real("cost_cents"),
+    dry_run: integer("dry_run", { mode: "boolean" }),
+    /** e.g. "posted" | "dry_run". */
+    publication_status: text("publication_status"),
+  },
+  (t) => [
+    index("analytics_bugbot_reviews_timestamp_idx").on(t.timestamp),
+    index("analytics_bugbot_reviews_repo_idx").on(t.repo),
+  ],
+);
+
+/** Findings within a BugBot review (`bugs[]`), in response order. */
+export const analyticsBugbotReviewFindings = sqliteTable(
+  "analytics_bugbot_review_findings",
+  {
+    request_id: text("request_id").notNull(),
+    idx: integer("idx").notNull(),
+    /** Posted findings only. */
+    comment_id: text("comment_id"),
+    /** "resolved" | "unresolved" | null (dry run). */
+    resolution_status: text("resolution_status"),
+    severity: text("severity"),
+    title: text("title"),
+    description: text("description"),
+    /** JSON array of `{ file, start_line, end_line }` (dry-run findings). */
+    locations: text("locations"),
+  },
+  (t) => [primaryKey({ columns: [t.request_id, t.idx] })],
+);
+
+// ---------------------------------------------------------------------------
+// Admin API — billing groups + Team directory groups
+// ---------------------------------------------------------------------------
+
+/** `/teams/groups` — one row per billing group per billing cycle (`cycle_start` day). */
+export const billingGroups = sqliteTable(
+  "billing_groups",
+  {
+    id: text("id").notNull(),
+    /** Cycle start day "YYYY-MM-DD" ("" when the API omits the cycle). */
+    cycle_start: text("cycle_start").notNull(),
+    cycle_end: text("cycle_end"),
+    name: text("name").notNull(),
+    type: text("type"),
+    directory_group_id: text("directory_group_id"),
+    member_count: integer("member_count"),
+    /** Group spend for the cycle, fractional cents. */
+    spend_cents: real("spend_cents"),
+    /** True for the reserved `Unassigned` group. */
+    is_unassigned: integer("is_unassigned", { mode: "boolean" }),
+    created_at: integer("created_at"),
+    updated_at: integer("updated_at"),
+    synced_at: integer("synced_at"),
+  },
+  (t) => [primaryKey({ columns: [t.id, t.cycle_start] })],
+);
+
+/** Current + former members of a billing group for a cycle, with their cycle spend. */
+export const billingGroupMembers = sqliteTable(
+  "billing_group_members",
+  {
+    group_id: text("group_id").notNull(),
+    cycle_start: text("cycle_start").notNull(),
+    user_id: text("user_id").notNull(),
+    name: text("name"),
+    email: text("email"),
+    joined_at: integer("joined_at"),
+    left_at: integer("left_at"),
+    spend_cents: real("spend_cents"),
+    is_current: integer("is_current", { mode: "boolean" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.group_id, t.cycle_start, t.user_id] }),
+    index("billing_group_members_email_idx").on(t.email),
+  ],
+);
+
+/** Daily spend per billing group (`dailySpend[]`). */
+export const billingGroupDailySpend = sqliteTable(
+  "billing_group_daily_spend",
+  {
+    group_id: text("group_id").notNull(),
+    date: text("date").notNull(),
+    spend_cents: real("spend_cents"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.group_id, t.date] }),
+    index("billing_group_daily_spend_date_idx").on(t.date),
+  ],
+);
+
+/** `/teams/directory-groups` — Team directory groups (`team_group_…` ids). */
+export const directoryGroups = sqliteTable("directory_groups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  member_count: integer("member_count"),
+  monthly_spending_limit_dollars: integer("monthly_spending_limit_dollars"),
+  created_at: integer("created_at"),
+  updated_at: integer("updated_at"),
+  synced_at: integer("synced_at"),
+});
+
+/** `/teams/directory-groups/:id/members` — group membership. */
+export const directoryGroupMembers = sqliteTable(
+  "directory_group_members",
+  {
+    group_id: text("group_id").notNull(),
+    user_id: text("user_id").notNull(),
+    name: text("name"),
+    email: text("email"),
+    joined_at: integer("joined_at"),
+    synced_at: integer("synced_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.group_id, t.user_id] }),
+    index("directory_group_members_email_idx").on(t.email),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// AI Code Tracking API (Enterprise alpha)
+// ---------------------------------------------------------------------------
+
+/**
+ * `/analytics/ai-code/commits` — per-commit AI line attribution. Amended commits can reappear
+ * with the same hash and a new ingestion time, so the key includes `created_at`.
+ */
+export const aiCodeCommits = sqliteTable(
+  "ai_code_commits",
+  {
+    commit_hash: text("commit_hash").notNull(),
+    /** Ingestion time on Cursor's side (epoch ms). */
+    created_at: integer("created_at").notNull(),
+    user_id: text("user_id"),
+    user_email: text("user_email"),
+    repo_name: text("repo_name"),
+    branch_name: text("branch_name"),
+    is_primary_branch: integer("is_primary_branch", { mode: "boolean" }),
+    /** "ide" | "cli" | "cloud". */
+    commit_source: text("commit_source"),
+    total_lines_added: integer("total_lines_added"),
+    total_lines_deleted: integer("total_lines_deleted"),
+    tab_lines_added: integer("tab_lines_added"),
+    tab_lines_deleted: integer("tab_lines_deleted"),
+    composer_lines_added: integer("composer_lines_added"),
+    composer_lines_deleted: integer("composer_lines_deleted"),
+    non_ai_lines_added: integer("non_ai_lines_added"),
+    non_ai_lines_deleted: integer("non_ai_lines_deleted"),
+    message: text("message"),
+    /** Commit timestamp (epoch ms) and its UTC day for grouping. */
+    commit_ts: integer("commit_ts"),
+    commit_day: text("commit_day"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.commit_hash, t.created_at] }),
+    index("ai_code_commits_commit_day_idx").on(t.commit_day),
+    index("ai_code_commits_user_email_idx").on(t.user_email),
+    index("ai_code_commits_repo_name_idx").on(t.repo_name),
+  ],
+);
+
+/** `/analytics/ai-code/changes` — accepted AI changes grouped by deterministic change id. */
+export const aiCodeChanges = sqliteTable(
+  "ai_code_changes",
+  {
+    change_id: text("change_id").primaryKey(),
+    user_id: text("user_id"),
+    user_email: text("user_email"),
+    /** "TAB" | "COMPOSER". */
+    source: text("source"),
+    model: text("model"),
+    total_lines_added: integer("total_lines_added"),
+    total_lines_deleted: integer("total_lines_deleted"),
+    created_at: integer("created_at"),
+    created_day: text("created_day"),
+  },
+  (t) => [
+    index("ai_code_changes_created_day_idx").on(t.created_day),
+    index("ai_code_changes_user_email_idx").on(t.user_email),
+  ],
+);
+
+/** Per-file metadata of an AI change (`metadata[]`); `file_name` may be null in privacy mode. */
+export const aiCodeChangeFiles = sqliteTable(
+  "ai_code_change_files",
+  {
+    change_id: text("change_id").notNull(),
+    idx: integer("idx").notNull(),
+    file_name: text("file_name"),
+    file_extension: text("file_extension"),
+    lines_added: integer("lines_added"),
+    lines_deleted: integer("lines_deleted"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.change_id, t.idx] }),
+    index("ai_code_change_files_extension_idx").on(t.file_extension),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Analytics API — by user (one table per by-user metric)
 // ---------------------------------------------------------------------------
@@ -660,6 +871,36 @@ export type NewAnalyticsLeaderboardEntry = typeof analyticsLeaderboard.$inferIns
 
 export type AnalyticsBugbot = typeof analyticsBugbot.$inferSelect;
 export type NewAnalyticsBugbot = typeof analyticsBugbot.$inferInsert;
+
+export type AnalyticsBugbotReview = typeof analyticsBugbotReviews.$inferSelect;
+export type NewAnalyticsBugbotReview = typeof analyticsBugbotReviews.$inferInsert;
+
+export type AnalyticsBugbotReviewFinding = typeof analyticsBugbotReviewFindings.$inferSelect;
+export type NewAnalyticsBugbotReviewFinding = typeof analyticsBugbotReviewFindings.$inferInsert;
+
+export type BillingGroup = typeof billingGroups.$inferSelect;
+export type NewBillingGroup = typeof billingGroups.$inferInsert;
+
+export type BillingGroupMember = typeof billingGroupMembers.$inferSelect;
+export type NewBillingGroupMember = typeof billingGroupMembers.$inferInsert;
+
+export type BillingGroupDailySpend = typeof billingGroupDailySpend.$inferSelect;
+export type NewBillingGroupDailySpend = typeof billingGroupDailySpend.$inferInsert;
+
+export type DirectoryGroup = typeof directoryGroups.$inferSelect;
+export type NewDirectoryGroup = typeof directoryGroups.$inferInsert;
+
+export type DirectoryGroupMember = typeof directoryGroupMembers.$inferSelect;
+export type NewDirectoryGroupMember = typeof directoryGroupMembers.$inferInsert;
+
+export type AiCodeCommit = typeof aiCodeCommits.$inferSelect;
+export type NewAiCodeCommit = typeof aiCodeCommits.$inferInsert;
+
+export type AiCodeChange = typeof aiCodeChanges.$inferSelect;
+export type NewAiCodeChange = typeof aiCodeChanges.$inferInsert;
+
+export type AiCodeChangeFile = typeof aiCodeChangeFiles.$inferSelect;
+export type NewAiCodeChangeFile = typeof aiCodeChangeFiles.$inferInsert;
 
 export type ByUserModel = typeof byUserModels.$inferSelect;
 export type NewByUserModel = typeof byUserModels.$inferInsert;

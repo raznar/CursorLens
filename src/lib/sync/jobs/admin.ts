@@ -1,9 +1,23 @@
 import "server-only";
-import { auditLogs, dailyUsage, spend, teamMembers, usageEvents } from "@/db/schema";
-import type { DateWindow, PageBatch } from "@/lib/cursor";
+import {
+  auditLogs,
+  billingGroupDailySpend,
+  billingGroupMembers,
+  billingGroups,
+  dailyUsage,
+  directoryGroupMembers,
+  directoryGroups,
+  spend,
+  teamMembers,
+  usageEvents,
+} from "@/db/schema";
+import type { BillingGroup, DateWindow, PageBatch } from "@/lib/cursor";
+import { toApiDate } from "@/lib/date-range";
 import { upsertRows } from "../upsert";
 import { maxString, parseTimestamp, windowLabel } from "./helpers";
 import type { JobContext, SyncJob } from "./types";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** GET /teams/members — full roster snapshot (not windowed). */
 export const membersJob: SyncJob = {
@@ -253,10 +267,156 @@ export const auditLogsJob: SyncJob = {
   },
 };
 
+function billingGroupRows(
+  group: BillingGroup,
+  cycleStart: string,
+  cycleEnd: string | null,
+  now: number,
+  isUnassigned: boolean,
+) {
+  const groupRow: typeof billingGroups.$inferInsert = {
+    id: group.id,
+    cycle_start: cycleStart,
+    cycle_end: cycleEnd,
+    name: group.name,
+    type: group.type ?? null,
+    directory_group_id: group.directoryGroupId ?? null,
+    member_count: group.memberCount ?? null,
+    spend_cents: group.spendCents ?? null,
+    is_unassigned: isUnassigned,
+    created_at: parseTimestamp(group.createdAt),
+    updated_at: parseTimestamp(group.updatedAt),
+    synced_at: now,
+  };
+  const memberRows: Array<typeof billingGroupMembers.$inferInsert> = [
+    ...(group.currentMembers ?? []).map((m) => ({ member: m, current: true })),
+    ...(group.formerMembers ?? []).map((m) => ({ member: m, current: false })),
+  ].map(({ member, current }) => ({
+    group_id: group.id,
+    cycle_start: cycleStart,
+    user_id: String(member.userId),
+    name: member.name ?? null,
+    email: member.email ?? null,
+    joined_at: parseTimestamp(member.joinedAt),
+    left_at: parseTimestamp(member.leftAt),
+    spend_cents: member.spendCents ?? null,
+    is_current: current,
+  }));
+  const dailyRows: Array<typeof billingGroupDailySpend.$inferInsert> = (group.dailySpend ?? []).map(
+    (d) => ({ group_id: group.id, date: d.date.slice(0, 10), spend_cents: d.spendCents ?? null }),
+  );
+  return { groupRow, memberRows, dailyRows };
+}
+
+/**
+ * GET /teams/groups — billing groups per cycle. Always fetches the current cycle; backfills
+ * also walk back in 30-day steps across the run range so prior cycles land too (the API
+ * resolves any date inside a cycle to that cycle, duplicates collapse on `cycle_start`).
+ */
+export const billingGroupsJob: SyncJob = {
+  dataType: "billing-groups",
+  metricId: "billing-groups",
+  label: "Billing groups",
+  enterpriseOnly: true,
+  run: async (ctx) => {
+    const cycleDates: Array<string | undefined> = [undefined];
+    if (ctx.mode === "backfill") {
+      for (
+        let ms = ctx.range.end.getTime() - 30 * DAY_MS;
+        ms >= ctx.range.start.getTime();
+        ms -= 30 * DAY_MS
+      ) {
+        cycleDates.push(toApiDate(new Date(ms)));
+      }
+    }
+    let total = 0;
+    const seenCycles = new Set<string>();
+    for (const [index, billingCycle] of cycleDates.entries()) {
+      ctx.reportProgress({
+        current: index,
+        total: cycleDates.length,
+        rows: total,
+        message: billingCycle
+          ? `Fetching billing groups for cycle containing ${billingCycle}`
+          : "Fetching billing groups for the current cycle",
+      });
+      const res = await ctx.client.admin.billingGroups(billingCycle);
+      const cycleStart = res.billingCycle?.cycleStart
+        ? res.billingCycle.cycleStart.slice(0, 10)
+        : "";
+      if (seenCycles.has(cycleStart)) continue;
+      seenCycles.add(cycleStart);
+      const cycleEnd = res.billingCycle?.cycleEnd ? res.billingCycle.cycleEnd.slice(0, 10) : null;
+      const groups = [
+        ...res.groups.map((g) => ({ group: g, unassigned: false })),
+        ...(res.unassignedGroup ? [{ group: res.unassignedGroup, unassigned: true }] : []),
+      ];
+      const groupRows: Array<typeof billingGroups.$inferInsert> = [];
+      const memberRows: Array<typeof billingGroupMembers.$inferInsert> = [];
+      const dailyRows: Array<typeof billingGroupDailySpend.$inferInsert> = [];
+      for (const { group, unassigned } of groups) {
+        const rows = billingGroupRows(group, cycleStart, cycleEnd, ctx.now, unassigned);
+        groupRows.push(rows.groupRow);
+        memberRows.push(...rows.memberRows);
+        dailyRows.push(...rows.dailyRows);
+      }
+      total += upsertRows(billingGroups, groupRows);
+      total += upsertRows(billingGroupMembers, memberRows);
+      total += upsertRows(billingGroupDailySpend, dailyRows);
+    }
+    return { rows: total };
+  },
+};
+
+/** GET /teams/directory-groups (+ /:id/members) — org grouping snapshot (not windowed). */
+export const directoryGroupsJob: SyncJob = {
+  dataType: "directory-groups",
+  metricId: "directory-groups",
+  label: "Directory groups",
+  run: async (ctx) => {
+    const groups = await ctx.client.admin.directoryGroups();
+    let total = upsertRows(
+      directoryGroups,
+      groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        member_count: g.memberCount ?? null,
+        monthly_spending_limit_dollars: g.monthlySpendingLimitDollars ?? null,
+        created_at: parseTimestamp(g.createdAt),
+        updated_at: parseTimestamp(g.updatedAt),
+        synced_at: ctx.now,
+      })),
+    );
+    for (const [index, group] of groups.entries()) {
+      ctx.reportProgress({
+        current: index,
+        total: groups.length,
+        rows: total,
+        message: `Fetching members of ${group.name} (${index + 1}/${groups.length})`,
+      });
+      const members = await ctx.client.admin.directoryGroupMembers(group.id);
+      total += upsertRows(
+        directoryGroupMembers,
+        members.map((m) => ({
+          group_id: group.id,
+          user_id: String(m.userId),
+          name: m.name ?? null,
+          email: m.email ?? null,
+          joined_at: parseTimestamp(m.joinedAt),
+          synced_at: ctx.now,
+        })),
+      );
+    }
+    return { rows: total };
+  },
+};
+
 export const adminJobs: SyncJob[] = [
   membersJob,
   spendJob,
   dailyUsageJob,
   usageEventsJob,
   auditLogsJob,
+  billingGroupsJob,
+  directoryGroupsJob,
 ];

@@ -15,12 +15,18 @@ import type { CursorHttp } from "./client";
 import { collectPages, streamPages, type PageBatch } from "./pagination";
 import {
   AuditLogsResponseSchema,
+  BillingGroupsResponseSchema,
   DailyUsageResponseSchema,
+  DirectoryGroupMembersResponseSchema,
+  DirectoryGroupsResponseSchema,
   SpendResponseSchema,
   TeamMembersResponseSchema,
   UsageEventsResponseSchema,
   type AuditLogEvent,
+  type BillingGroupsResponse,
   type DailyUsageRow,
+  type DirectoryGroup,
+  type DirectoryGroupMember,
   type SpendRow,
   type TeamMember,
   type UsageEvent,
@@ -28,12 +34,14 @@ import {
 
 /**
  * Page sizes per the Admin API docs: `filtered-usage-events` allows up to 1000, `audit-logs`
- * up to 500, `daily-usage-data` documents a 1000 example; `spend` documents no cap.
+ * up to 500, `daily-usage-data` documents a 1000 example; `spend` documents no cap;
+ * directory-group list routes clamp at 200.
  */
 export const SPEND_PAGE_SIZE = 500;
 export const DAILY_USAGE_PAGE_SIZE = 1000;
 export const USAGE_EVENTS_PAGE_SIZE = 1000;
 export const AUDIT_LOGS_PAGE_SIZE = 500;
+export const DIRECTORY_GROUPS_PAGE_SIZE = 200;
 
 export async function getMembers(http: CursorHttp): Promise<TeamMember[]> {
   const res = await http.request({
@@ -196,6 +204,69 @@ export async function getAuditLogs(
   pageSize = AUDIT_LOGS_PAGE_SIZE,
 ): Promise<AuditLogEvent[]> {
   return collectBatches(streamAuditLogs(http, query, pageSize));
+}
+
+/**
+ * GET /teams/groups — billing groups with cycle spend, members, and a daily series. One
+ * request per billing cycle; `billingCycle` (ISO date) selects a past cycle.
+ */
+export async function getBillingGroups(
+  http: CursorHttp,
+  billingCycle?: string,
+): Promise<BillingGroupsResponse> {
+  const res = await http.request({
+    method: "GET",
+    path: "/teams/groups",
+    group: "adminGroups",
+    query: { billingCycle },
+    schema: BillingGroupsResponseSchema,
+  });
+  return res.data!;
+}
+
+/** GET /teams/directory-groups — Team directory groups (paginated). */
+export async function getDirectoryGroups(
+  http: CursorHttp,
+  pageSize = DIRECTORY_GROUPS_PAGE_SIZE,
+): Promise<DirectoryGroup[]> {
+  return collectPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: "/teams/directory-groups",
+        group: "adminGroups",
+        query: { page, pageSize },
+        schema: DirectoryGroupsResponseSchema,
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.groups,
+    getPagination: (d) => d.pagination,
+    pageSize,
+  });
+}
+
+/** GET /teams/directory-groups/:groupId/members — members of one directory group. */
+export async function getDirectoryGroupMembers(
+  http: CursorHttp,
+  groupId: string,
+  pageSize = DIRECTORY_GROUPS_PAGE_SIZE,
+): Promise<DirectoryGroupMember[]> {
+  return collectPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: `/teams/directory-groups/${encodeURIComponent(groupId)}/members`,
+        group: "adminGroups",
+        query: { page, pageSize },
+        schema: DirectoryGroupMembersResponseSchema,
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.members,
+    getPagination: (d) => d.pagination,
+    pageSize,
+  });
 }
 
 async function collectBatches<T>(batches: AsyncGenerator<PageBatch<T>>): Promise<T[]> {

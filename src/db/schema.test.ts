@@ -23,9 +23,15 @@ function pkColumnNames(table: SQLiteTable): string[] {
 }
 
 describe("db schema", () => {
-  it("exports all 35 tables", () => {
+  it("exports all 45 tables", () => {
     const tables = Object.values(schema).filter((value) => is(value, SQLiteTable));
-    expect(tables).toHaveLength(35);
+    expect(tables).toHaveLength(45);
+  });
+
+  it("keys amended commits by hash + ingestion time and groups by cycle", () => {
+    expect(pkColumnNames(schema.aiCodeCommits)).toEqual(["commit_hash", "created_at"]);
+    expect(pkColumnNames(schema.billingGroups)).toEqual(["cycle_start", "id"]);
+    expect(pkColumnNames(schema.analyticsBugbotReviewFindings)).toEqual(["idx", "request_id"]);
   });
 
   it("uses composite + single primary keys that match the spec", () => {

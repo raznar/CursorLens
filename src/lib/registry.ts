@@ -53,9 +53,10 @@ export type DashboardSection =
   | "productivity"
   | "features"
   | "members"
-  | "audit";
+  | "audit"
+  | "ai-code";
 
-export type MetricSource = "admin" | "analytics-team" | "analytics-by-user";
+export type MetricSource = "admin" | "analytics-team" | "analytics-by-user" | "ai-code";
 
 export interface MetricDef {
   /** Stable id; also the canonical name used by sync jobs and tables. */
@@ -128,13 +129,38 @@ export const METRICS: readonly MetricDef[] = [
   {
     id: "usage-events",
     label: "Usage events",
-    description: "Granular per-request events: model, tokens, max mode, charged cents.",
+    description:
+      "Granular per-request events: model, tokens, max mode, charged cents, and conversation / cloud-agent / automation attribution.",
     source: "admin",
     endpoint: "/teams/filtered-usage-events",
     rateLimitGroup: "adminUsageEvents",
     section: "models",
     defaultChart: "stackedBar",
     valueFormat: "cents",
+  },
+  {
+    id: "billing-groups",
+    label: "Billing groups",
+    description:
+      "Billing groups with per-cycle spend, current/former members, and a daily spend series.",
+    source: "admin",
+    endpoint: "/teams/groups",
+    rateLimitGroup: "adminGroups",
+    section: "spend",
+    defaultChart: "bar",
+    valueFormat: "cents",
+    enterpriseOnly: true,
+  },
+  {
+    id: "directory-groups",
+    label: "Directory groups",
+    description: "Team directory groups and their members (manual or SCIM-synced).",
+    source: "admin",
+    endpoint: "/teams/directory-groups",
+    rateLimitGroup: "adminGroups",
+    section: "members",
+    defaultChart: "bar",
+    valueFormat: "number",
   },
   // --- Analytics API (team-level; most also have by-user variants) ---
   {
@@ -313,6 +339,46 @@ export const METRICS: readonly MetricDef[] = [
     section: "features",
     defaultChart: "bar",
     valueFormat: "number",
+    enterpriseOnly: true,
+  },
+  {
+    id: "bugbot-reviews",
+    label: "BugBot reviews",
+    description:
+      "Per-review BugBot analytics: billed cost, findings by severity, resolution status, and dry runs.",
+    source: "analytics-team",
+    endpoint: "/analytics/team/bugbot-reviews",
+    rateLimitGroup: "analyticsTeam",
+    section: "features",
+    defaultChart: "bar",
+    valueFormat: "cents",
+    enterpriseOnly: true,
+  },
+  // --- AI Code Tracking API (Enterprise alpha; response shapes may change) ---
+  {
+    id: "ai-code-commits",
+    label: "AI code commits",
+    description:
+      "Per-commit line attribution: Tab vs Composer (Agent) vs non-AI lines, by repo, branch, user, and commit source (alpha).",
+    source: "ai-code",
+    endpoint: "/analytics/ai-code/commits",
+    rateLimitGroup: "aiCodeCommits",
+    section: "ai-code",
+    defaultChart: "stackedArea",
+    valueFormat: "compact",
+    enterpriseOnly: true,
+  },
+  {
+    id: "ai-code-changes",
+    label: "AI code changes",
+    description:
+      "Accepted AI changes grouped by change id: source (TAB/COMPOSER), model, lines, and per-file metadata (alpha).",
+    source: "ai-code",
+    endpoint: "/analytics/ai-code/changes",
+    rateLimitGroup: "aiCodeChanges",
+    section: "ai-code",
+    defaultChart: "bar",
+    valueFormat: "compact",
     enterpriseOnly: true,
   },
 ] as const;

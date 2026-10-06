@@ -14,12 +14,16 @@ import {
   hasNextPage,
   MAX_PAGES,
   streamByUserPages,
+  streamPages,
   type ByUserPageBatch,
+  type PageBatch,
 } from "./pagination";
 import {
   BugbotResponseSchema,
+  BugbotReviewsResponseSchema,
   ConversationInsightsResponseSchema,
   LeaderboardResponseSchema,
+  type BugbotReview,
   type BugbotRow,
   type LeaderboardEntry,
   type Pagination,
@@ -33,10 +37,11 @@ export interface DateRange {
 /** The `include` slices required by the conversation-insights endpoint. */
 export const CONVERSATION_INCLUDE = "intents,complexity,categories,guidanceLevels,workTypes";
 
-/** Documented maxima: by-user 500 users/page, leaderboard 500, bugbot 250. */
+/** Documented maxima: by-user 500 users/page, leaderboard 500, bugbot + bugbot-reviews 250. */
 export const BY_USER_PAGE_SIZE = 500;
 export const LEADERBOARD_PAGE_SIZE = 500;
 export const BUGBOT_PAGE_SIZE = 250;
+export const BUGBOT_REVIEWS_PAGE_SIZE = 250;
 
 /**
  * Fetch a single-request team analytics metric, threading ETag / `If-None-Match`.
@@ -138,6 +143,47 @@ export async function getBugbot(
     },
     getItems: (d) => d.data,
     getPagination: (d) => d.pagination,
+  });
+}
+
+export interface BugbotReviewsQuery {
+  repo?: string;
+  prNumber?: number;
+  dryRun?: boolean;
+}
+
+/**
+ * Per-review Bugbot analytics (`read:*` scope): posted and dry-run reviews with billed cost
+ * and per-finding resolution. Streamed page by page; shares the team analytics bucket.
+ */
+export function streamBugbotReviews(
+  http: CursorHttp,
+  range: DateRange,
+  opts: BugbotReviewsQuery & { pageSize?: number } = {},
+): AsyncGenerator<PageBatch<BugbotReview>> {
+  const pageSize = opts.pageSize ?? BUGBOT_REVIEWS_PAGE_SIZE;
+  return streamPages({
+    fetchPage: async (page) => {
+      const res = await http.request({
+        method: "GET",
+        path: "/analytics/team/bugbot-reviews",
+        group: "analyticsTeam",
+        schema: BugbotReviewsResponseSchema,
+        query: {
+          startDate: toApiDate(range.start),
+          endDate: toApiDate(range.end),
+          repo: opts.repo,
+          prNumber: opts.prNumber,
+          dryRun: opts.dryRun,
+          page,
+          pageSize,
+        },
+      });
+      return res.data!;
+    },
+    getItems: (d) => d.data,
+    getPagination: (d) => d.pagination,
+    pageSize,
   });
 }
 

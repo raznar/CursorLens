@@ -663,6 +663,304 @@ function genBugbot(days: Day[], page: number, pageSize: number) {
   };
 }
 
+function genBugbotReviews(days: Day[], page: number, pageSize: number, dryRunOnly?: string | null) {
+  const repos = ["github.com/acme/app", "github.com/acme/api"];
+  const all = days.flatMap((d, di) =>
+    repos.flatMap((repo, ri) => {
+      const seed = `bbr:${repo}:${d.day}`;
+      const posted = {
+        request_id: `rv_${fnv1a(seed).toString(16)}`,
+        timestamp: new Date(d.ms + 9 * 3_600_000).toISOString(),
+        repo,
+        repo_node_id: `R_${ri}`,
+        pr_number: 100 + di * 2 + ri,
+        commit_sha: fnv1a(seed + ":sha")
+          .toString(16)
+          .padStart(8, "0")
+          .repeat(5),
+        bugs_found: 2,
+        cost_cents: round2(30 + rand01(seed + ":cost") * 40),
+        dry_run: false,
+        publication_status: "posted",
+        bugs: [
+          {
+            comment_id: String(2_000_000 + di * 10 + ri),
+            resolution_status: "resolved",
+            severity: "high",
+          },
+          {
+            comment_id: String(2_000_001 + di * 10 + ri),
+            resolution_status: rand01(seed + ":r") > 0.5 ? "resolved" : "unresolved",
+            severity: "medium",
+          },
+        ],
+      };
+      const dry = {
+        request_id: `rv_${fnv1a(seed + ":dry").toString(16)}`,
+        timestamp: new Date(d.ms + 10 * 3_600_000).toISOString(),
+        repo,
+        repo_node_id: `R_${ri}`,
+        pr_number: 100 + di * 2 + ri,
+        commit_sha: fnv1a(seed + ":sha2")
+          .toString(16)
+          .padStart(8, "0")
+          .repeat(5),
+        bugs_found: 1,
+        cost_cents: null,
+        dry_run: true,
+        publication_status: "dry_run",
+        bugs: [
+          {
+            comment_id: null,
+            resolution_status: null,
+            severity: "low",
+            title: "Unbounded retry loop",
+            description: "retry() recurses without a ceiling.",
+            locations: [{ file: "src/net.ts", start_line: 5, end_line: 9 }],
+          },
+        ],
+      };
+      return ri === 0 ? [posted, dry] : [posted];
+    }),
+  );
+  const filtered = dryRunOnly == null ? all : all.filter((r) => String(r.dry_run) === dryRunOnly);
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  return {
+    data: filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    },
+    params: analyticsParams("bugbot-reviews"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Billing groups + directory groups
+// ---------------------------------------------------------------------------
+
+const BILLING_GROUPS: Array<{
+  id: string;
+  name: string;
+  members: MockUser[];
+  directoryGroupId: string | null;
+}> = [
+  {
+    id: "group_engineering",
+    name: "Engineering",
+    members: MOCK_USERS.slice(0, 3),
+    directoryGroupId: "team_group_eng",
+  },
+  { id: "group_design", name: "Design", members: MOCK_USERS.slice(3, 4), directoryGroupId: null },
+];
+
+function genBillingGroups(billingCycle: string | null) {
+  const anchor = billingCycle ? parseDay(billingCycle, Date.now()) : Date.now();
+  const d = new Date(anchor);
+  const cycleStartMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const cycleEndMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  const cycleKey = new Date(cycleStartMs).toISOString().slice(0, 10);
+  const days = dayList(cycleStartMs, Math.min(cycleEndMs - 1, Date.now()));
+  const group = (
+    id: string,
+    name: string,
+    members: MockUser[],
+    directoryGroupId: string | null,
+  ) => {
+    const memberRows = members.map((u) => {
+      const spendCents =
+        randInt(`bgs:${cycleKey}:${u.email}`, 500, 20_000) + rand01(`bgf:${u.email}`);
+      return {
+        userId: u.publicId,
+        name: u.name,
+        email: u.email,
+        joinedAt: "2024-01-15T10:30:00.000Z",
+        leftAt: null,
+        spendCents,
+      };
+    });
+    const spendCents = round2(memberRows.reduce((s, m) => s + m.spendCents, 0));
+    return {
+      id,
+      name,
+      type: "BILLING",
+      directoryGroupId,
+      memberCount: members.length,
+      createdAt: "2024-01-15T10:30:00.000Z",
+      updatedAt: "2024-01-20T14:22:00.000Z",
+      spendCents,
+      currentMembers: memberRows,
+      formerMembers: [],
+      dailySpend: days.map((day) => ({
+        date: day.day,
+        spendCents: round2(
+          (spendCents / Math.max(1, days.length)) * (0.5 + rand01(`bgd:${id}:${day.day}`)),
+        ),
+      })),
+    };
+  };
+  const assigned = new Set(BILLING_GROUPS.flatMap((g) => g.members.map((m) => m.email)));
+  return {
+    groups: BILLING_GROUPS.map((g) => group(g.id, g.name, g.members, g.directoryGroupId)),
+    unassignedGroup: group(
+      "group_unassigned",
+      "Unassigned",
+      MOCK_USERS.filter((u) => !assigned.has(u.email)),
+      null,
+    ),
+    billingCycle: {
+      cycleStart: new Date(cycleStartMs).toISOString(),
+      cycleEnd: new Date(cycleEndMs).toISOString(),
+    },
+  };
+}
+
+const DIRECTORY_GROUPS = [
+  { id: "team_group_eng", name: "Engineering", members: MOCK_USERS.slice(0, 3), limit: 500 },
+  { id: "team_group_design", name: "Design", members: MOCK_USERS.slice(3, 5), limit: null },
+];
+
+function genDirectoryGroups(page: number, pageSize: number) {
+  const all = DIRECTORY_GROUPS.map((g) => ({
+    id: g.id,
+    name: g.name,
+    memberCount: g.members.length,
+    monthlySpendingLimitDollars: g.limit,
+    createdAt: "2026-01-15T10:30:00.000Z",
+    updatedAt: "2026-01-20T14:22:00.000Z",
+  }));
+  return paginatedList("groups", all, page, pageSize);
+}
+
+function genDirectoryGroupMembers(groupId: string, page: number, pageSize: number) {
+  const group = DIRECTORY_GROUPS.find((g) => g.id === groupId);
+  if (!group) return undefined;
+  const all = group.members.map((u) => ({
+    userId: u.publicId,
+    name: u.name,
+    email: u.email,
+    joinedAt: "2026-01-16T09:15:00.000Z",
+  }));
+  return paginatedList("members", all, page, pageSize);
+}
+
+function paginatedList<T>(key: string, all: T[], page: number, pageSize: number) {
+  const totalCount = all.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  return {
+    [key]: all.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    pagination: {
+      page,
+      pageSize,
+      totalCount,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AI Code Tracking (flat `{ items, totalCount, page, pageSize }` envelope)
+// ---------------------------------------------------------------------------
+
+const AI_REPOS = ["acme/app", "acme/api", "acme/infra"];
+const COMMIT_SOURCES = ["ide", "ide", "ide", "cli", "cloud"];
+
+function genAiCodeCommits(days: Day[], page: number, pageSize: number) {
+  const all = days.flatMap((d) =>
+    MOCK_USERS.flatMap((u) => {
+      const n = randInt(`aic:${u.email}:${d.day}`, 0, 3);
+      return Array.from({ length: n }, (_, i) => {
+        const seed = `aicc:${u.email}:${d.day}:${i}`;
+        const tabAdded = randInt(seed + ":ta", 0, 80);
+        const composerAdded = randInt(seed + ":ca", 0, 200);
+        const nonAiAdded = randInt(seed + ":na", 0, 120);
+        const tabDeleted = randInt(seed + ":td", 0, 20);
+        const composerDeleted = randInt(seed + ":cd", 0, 60);
+        const nonAiDeleted = randInt(seed + ":nd", 0, 40);
+        const commitMs = d.ms + randInt(seed + ":h", 8, 20) * 3_600_000 + i * 120_000;
+        return {
+          commitHash: fnv1a(seed).toString(16).padStart(8, "0").repeat(5),
+          userId: u.publicId,
+          userEmail: u.email,
+          repoName: pick(AI_REPOS, seed + ":repo"),
+          branchName:
+            rand01(seed + ":br") > 0.6 ? "main" : `feature/${fnv1a(seed).toString(36).slice(0, 5)}`,
+          isPrimaryBranch: rand01(seed + ":br") > 0.6,
+          commitSource: pick(COMMIT_SOURCES, seed + ":src"),
+          totalLinesAdded: tabAdded + composerAdded + nonAiAdded,
+          totalLinesDeleted: tabDeleted + composerDeleted + nonAiDeleted,
+          tabLinesAdded: tabAdded,
+          tabLinesDeleted: tabDeleted,
+          composerLinesAdded: composerAdded,
+          composerLinesDeleted: composerDeleted,
+          nonAiLinesAdded: nonAiAdded,
+          nonAiLinesDeleted: nonAiDeleted,
+          message: pick(
+            ["Refactor analytics client", "Fix retry loop", "Add report export", "Update deps"],
+            seed + ":msg",
+          ),
+          commitTs: new Date(commitMs).toISOString(),
+          createdAt: new Date(commitMs + 30_000).toISOString(),
+        };
+      });
+    }),
+  );
+  return {
+    items: all.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    totalCount: all.length,
+    page,
+    pageSize,
+  };
+}
+
+function genAiCodeChanges(days: Day[], page: number, pageSize: number) {
+  const all = days.flatMap((d) =>
+    MOCK_USERS.flatMap((u) => {
+      const n = randInt(`aich:${u.email}:${d.day}`, 1, 5);
+      return Array.from({ length: n }, (_, i) => {
+        const seed = `aichg:${u.email}:${d.day}:${i}`;
+        const source = rand01(seed + ":s") > 0.4 ? "COMPOSER" : "TAB";
+        const ext = pick(FILE_EXTS, seed + ":ext");
+        const added = randInt(seed + ":a", 1, 60);
+        const deleted = randInt(seed + ":d", 0, 15);
+        return {
+          changeId: String(fnv1a(seed)),
+          userId: u.publicId,
+          userEmail: u.email,
+          source,
+          model: source === "COMPOSER" ? pick(u.models, seed + ":m") : null,
+          totalLinesAdded: added,
+          totalLinesDeleted: deleted,
+          createdAt: new Date(
+            d.ms + randInt(seed + ":h", 8, 20) * 3_600_000 + i * 60_000,
+          ).toISOString(),
+          metadata: [
+            {
+              fileName: `src/${fnv1a(seed).toString(36).slice(0, 6)}.${ext}`,
+              fileExtension: ext,
+              linesAdded: added,
+              linesDeleted: deleted,
+            },
+          ],
+        };
+      });
+    }),
+  );
+  return {
+    items: all.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    totalCount: all.length,
+    page,
+    pageSize,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // By-user generators (data keyed by email)
 // ---------------------------------------------------------------------------
@@ -716,6 +1014,17 @@ function routeGet(path: string, params: URLSearchParams): unknown | undefined {
 
   if (path === "/teams/members") return genMembers();
   if (path === "/teams/audit-logs") return genAuditLogs(params);
+  if (path === "/teams/groups") return genBillingGroups(params.get("billingCycle"));
+  if (path === "/teams/directory-groups") return genDirectoryGroups(page, pageSize);
+  const dirMembers = /^\/teams\/directory-groups\/([^/]+)\/members$/.exec(path);
+  if (dirMembers)
+    return genDirectoryGroupMembers(decodeURIComponent(dirMembers[1]!), page, pageSize);
+
+  if (path.startsWith("/analytics/ai-code/")) {
+    const days = analyticsDays(params);
+    if (path === "/analytics/ai-code/commits") return genAiCodeCommits(days, page, pageSize);
+    if (path === "/analytics/ai-code/changes") return genAiCodeChanges(days, page, pageSize);
+  }
 
   if (path.startsWith("/analytics/team/")) {
     const days = analyticsDays(params);
@@ -748,6 +1057,8 @@ function routeGet(path: string, params: URLSearchParams): unknown | undefined {
         return genLeaderboard(page, pageSize);
       case "/analytics/team/bugbot":
         return genBugbot(days, page, pageSize);
+      case "/analytics/team/bugbot-reviews":
+        return genBugbotReviews(days, page, pageSize, params.get("dryRun"));
     }
   }
 

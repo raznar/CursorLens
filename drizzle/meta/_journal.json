@@ -57,6 +57,13 @@
       "when": 1791312269526,
       "tag": "0007_api_drift_2026",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791312812287,
+      "tag": "0008_new_endpoints",
+      "breakpoints": true
     }
   ]
 }
