@@ -2,6 +2,7 @@ import {
   Boxes,
   DollarSign,
   Gauge,
+  GitCommit,
   LayoutDashboard,
   type LucideIcon,
   ScrollText,
@@ -27,6 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/spend", label: "Spend", icon: DollarSign },
   { href: "/productivity", label: "Productivity", icon: Gauge },
   { href: "/features", label: "Features", icon: Sparkles },
+  { href: "/ai-code", label: "AI code", icon: GitCommit },
   { href: "/members", label: "Members", icon: Users },
   { href: "/audit", label: "Audit", icon: ScrollText },
 ];

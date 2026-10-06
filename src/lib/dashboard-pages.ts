@@ -14,6 +14,7 @@ export const DASHBOARD_PAGES: readonly DashboardPageDef[] = [
   { href: "/spend", label: "Spend", section: "spend" },
   { href: "/productivity", label: "Productivity", section: "productivity" },
   { href: "/features", label: "Features", section: "features" },
+  { href: "/ai-code", label: "AI code", section: "ai-code" },
   { href: "/members", label: "Members", section: "members" },
   { href: "/audit", label: "Audit", section: "audit" },
 ] as const;

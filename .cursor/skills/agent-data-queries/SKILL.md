@@ -63,8 +63,19 @@ column reference. After any schema change, regenerate it (the `verify` gate enfo
   `timestamp >= (unixepoch('now') - N*86400) * 1000`. Day-grained tables store text dates like
   `'2024-03-18'`: compare with `date('now', '-N days')`.
 - **Money** — integer columns are whole **cents**; `requests_costs`, `total_cents`,
-  `charged_cents`, `cursor_token_fee` are `real` cents. Divide by 100 for dollars and round.
+  `charged_cents`, `cursor_token_fee`, and `spend.spend_cents` / `overall_spend_cents` are
+  `real` cents. Divide by 100 for dollars and round.
 - **Booleans** are 0/1 integers.
+- **AI-written code** — `ai_code_commits` (per commit: `tab_lines_added`,
+  `composer_lines_added`, `non_ai_lines_added`, `commit_day`, `repo_name`, `commit_source`);
+  AI share = (tab + composer) / total. Accepted AI edits: `ai_code_changes` +
+  `ai_code_change_files`. `usage_events.conversation_id` is the join key to agent sessions;
+  `cloud_agent_id` / `automation_id` attribute spend to cloud agents / automations.
+- **BugBot cost** — `analytics_bugbot_reviews.cost_cents` (+ `dry_run`), findings in
+  `analytics_bugbot_review_findings` joined on `request_id`.
+- **Groups** — `billing_groups` is per group **per `cycle_start`** (latest = `max(cycle_start)`)
+  with `billing_group_members` / `billing_group_daily_spend`; people-level grouping is
+  `directory_groups` + `directory_group_members` (join to other tables by email).
 
 ## Output convention
 

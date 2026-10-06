@@ -13,7 +13,7 @@ types → client wrapper → registry → table/migration → sync job. Read
 
 ```
 - [ ] 1. Zod schema + inferred type      src/lib/cursor/types.ts
-- [ ] 2. Typed client wrapper             src/lib/cursor/admin.ts | analytics.ts (+ export in index.ts)
+- [ ] 2. Typed client wrapper             src/lib/cursor/admin.ts | analytics.ts | ai-code.ts (+ export in index.ts)
 - [ ] 3. Registry entry                   src/lib/registry.ts (METRICS)
 - [ ] 4. Drizzle table + migration        src/db/schema.ts  ->  npm run db:generate / db:migrate
 - [ ] 5. Sync job                         src/lib/sync/jobs/{admin,analytics-team,analytics-by-user}.ts
@@ -31,7 +31,8 @@ schemas — the by-user live API may omit `event_date` on each row.
 
 ## 2. Typed client wrapper (`src/lib/cursor/`)
 
-Add a function in `admin.ts` (Admin API) or `analytics.ts` (Analytics API) that calls
+Add a function in `admin.ts` (Admin API), `analytics.ts` (Analytics API), or `ai-code.ts`
+(AI Code Tracking API — flat `{ items, totalCount, page, pageSize }` envelope) that calls
 `http.request({ method, path, group, schema, query|body, etag? })` and returns plain data.
 Small endpoints follow pagination to completion with `collectPages` / `collectByUserPages`;
 high-volume windowed endpoints should expose a `stream*` generator built on `streamPages`
@@ -44,7 +45,7 @@ so offline mode works.
 ## 3. Registry entry (`src/lib/registry.ts`)
 
 Append a `MetricDef` to `METRICS` with: `id` (also the sync `dataType`), `label`,
-`description`, `source` (`admin` | `analytics-team` | `analytics-by-user`), `endpoint`,
+`description`, `source` (`admin` | `analytics-team` | `analytics-by-user` | `ai-code`), `endpoint`,
 `rateLimitGroup` (a `RateLimitGroup` key in `RATE_LIMITS`), `section`, `defaultChart`,
 `valueFormat`, and `hasByUser` / `enterpriseOnly` when relevant.
 

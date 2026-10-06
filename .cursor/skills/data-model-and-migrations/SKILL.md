@@ -66,8 +66,12 @@ Keep ingestion idempotent: pick a primary key that makes a repeat fetch overwrit
 
 ## Tables at a glance
 
-Admin: `team_members`, `audit_logs`, `daily_usage`, `spend`, `usage_events`. Analytics
-team-level + by-user variants (`analytics_*` / `by_user_*`). Ops: `sync_state` (per-data-type
+Admin: `team_members`, `audit_logs`, `daily_usage`, `spend`, `usage_events`, `billing_groups`
+(+ `_members`, `_daily_spend`; one row per group per `cycle_start`), `directory_groups` (+
+`_members`). Analytics team-level + by-user variants (`analytics_*` / `by_user_*`), incl.
+`analytics_bugbot_reviews` + `_findings`. AI Code Tracking: `ai_code_commits` (PK
+`commit_hash + created_at` — amended commits reappear), `ai_code_changes`,
+`ai_code_change_files`. Ops: `sync_state` (per-data-type
 watermark/etag/status), `sync_coverage` (per-data-type windows already ingested, with the
 window's ETag — drives resumable backfills; see `sync-and-rate-limits`), `sync_runs` +
 `sync_run_items` (run log plus nullable `progress_current`, `progress_total`, and

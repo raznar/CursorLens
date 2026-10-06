@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { dailyUsage, db, spend, teamMembers } from "@/db";
+import { dailyUsage, db, directoryGroupMembers, directoryGroups, spend, teamMembers } from "@/db";
 import { whenCacheReadable } from "./cache-guard";
 import { dayBetween, type Range } from "./filters";
 
@@ -10,6 +10,7 @@ const EMPTY_MEMBERS: MembersData = {
   active: 0,
   removed: 0,
   activeInRange: 0,
+  groups: [],
 };
 
 export interface MemberRow {
@@ -17,9 +18,19 @@ export interface MemberRow {
   name: string | null;
   role: string | null;
   status: string;
+  /** Comma-separated Team directory group names (empty when ungrouped). */
+  groups: string;
   spendCents: number;
   lastActive: string | null;
   model: string | null;
+}
+
+export interface DirectoryGroupRow {
+  group: string;
+  members: number;
+  monthlyLimitDollars: number | null;
+  /** Current-cycle spend summed over the group's members (joined by email). */
+  spendCents: number;
 }
 
 export interface MembersData {
@@ -28,6 +39,7 @@ export interface MembersData {
   active: number;
   removed: number;
   activeInRange: number;
+  groups: DirectoryGroupRow[];
 }
 
 /**
@@ -87,6 +99,41 @@ function getMembersLoaded(range: Range): MembersData {
     if (r.email) modelByKey.set(`${r.email.toLowerCase()}\u0000${r.day}`, r.model ?? null);
   }
 
+  const groupRows = db
+    .select({
+      id: directoryGroups.id,
+      name: directoryGroups.name,
+      memberCount: directoryGroups.member_count,
+      monthlyLimitDollars: directoryGroups.monthly_spending_limit_dollars,
+    })
+    .from(directoryGroups)
+    .all();
+  const membershipRows = db
+    .select({ groupId: directoryGroupMembers.group_id, email: directoryGroupMembers.email })
+    .from(directoryGroupMembers)
+    .all();
+  const groupNameById = new Map(groupRows.map((g) => [g.id, g.name]));
+  const groupsByEmail = new Map<string, string[]>();
+  const spendByGroup = new Map<string, number>();
+  for (const r of membershipRows) {
+    if (!r.email) continue;
+    const emailKey = r.email.toLowerCase();
+    const name = groupNameById.get(r.groupId) ?? r.groupId;
+    (groupsByEmail.get(emailKey) ?? groupsByEmail.set(emailKey, []).get(emailKey)!).push(name);
+    spendByGroup.set(
+      r.groupId,
+      (spendByGroup.get(r.groupId) ?? 0) + (spendByEmail.get(emailKey) ?? 0),
+    );
+  }
+  const groups: DirectoryGroupRow[] = groupRows
+    .map((g) => ({
+      group: g.name,
+      members: g.memberCount ?? membershipRows.filter((m) => m.groupId === g.id).length,
+      monthlyLimitDollars: g.monthlyLimitDollars,
+      spendCents: spendByGroup.get(g.id) ?? 0,
+    }))
+    .sort((a, b) => b.spendCents - a.spendCents);
+
   const rows: MemberRow[] = members.map((m) => {
     const emailKey = m.email.toLowerCase();
     const lastActive = lastDayByEmail.get(emailKey) ?? null;
@@ -95,6 +142,7 @@ function getMembersLoaded(range: Range): MembersData {
       name: m.name,
       role: m.role,
       status: m.isRemoved ? "Removed" : "Active",
+      groups: (groupsByEmail.get(emailKey) ?? []).sort().join(", "),
       spendCents: spendByEmail.get(emailKey) ?? 0,
       lastActive,
       model: lastActive ? (modelByKey.get(`${emailKey}\u0000${lastActive}`) ?? null) : null,
@@ -115,5 +163,6 @@ function getMembersLoaded(range: Range): MembersData {
     active: total - removed,
     removed,
     activeInRange: activeRow?.n ?? 0,
+    groups,
   };
 }

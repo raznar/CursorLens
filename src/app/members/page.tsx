@@ -51,11 +51,11 @@ export default async function MembersPage({ searchParams }: PageProps) {
 
       <ChartCard
         title="Members"
-        description="Role, status, spend, last active day, and most-used model"
+        description="Role, status, directory groups, spend, last active day, and most-used model"
       >
         <QueryTable
           rows={data.members}
-          searchPlaceholder="Search members, roles, models…"
+          searchPlaceholder="Search members, roles, groups, models…"
           csvFilename="members.csv"
           pageSize={50}
           initialSort={{ key: "spendCents", dir: "desc" }}
@@ -65,9 +65,29 @@ export default async function MembersPage({ searchParams }: PageProps) {
             { key: "name", header: "Name" },
             { key: "role", header: "Role" },
             { key: "status", header: "Status" },
+            { key: "groups", header: "Directory groups" },
             { key: "spendCents", header: "Spend", format: "cents" },
             { key: "lastActive", header: "Last active", format: "date" },
             { key: "model", header: "Most-used model" },
+          ]}
+        />
+      </ChartCard>
+
+      <ChartCard
+        title="Directory groups"
+        description="Team directory groups with member counts, per-member monthly limits, and summed current-cycle spend"
+      >
+        <QueryTable
+          rows={data.groups}
+          searchPlaceholder="Search groups…"
+          csvFilename="directory-groups.csv"
+          initialSort={{ key: "spendCents", dir: "desc" }}
+          emptyMessage="No directory groups synced yet."
+          columns={[
+            { key: "group", header: "Group" },
+            { key: "members", header: "Members", format: "number" },
+            { key: "monthlyLimitDollars", header: "Monthly limit / member", format: "dollars" },
+            { key: "spendCents", header: "Cycle spend", format: "cents" },
           ]}
         />
       </ChartCard>

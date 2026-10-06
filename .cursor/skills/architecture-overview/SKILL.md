@@ -5,7 +5,7 @@ description: Entry-point map of the Cursor Lens app — directory layout, the on
 
 # Architecture overview
 
-Self-hosted Next.js app that ingests one Cursor team's Admin + Analytics API data into
+Self-hosted Next.js app that ingests one Cursor team's Admin, Analytics, and AI Code Tracking API data into
 local SQLite, renders a read-only dashboard, and embeds the Cursor SDK so a local agent
 answers questions about the data. Read this first, then jump to the area-specific skill.
 
@@ -20,7 +20,7 @@ answers questions about the data. Read this first, then jump to the area-specifi
 │   ├── db/             Drizzle schema + the server-only SQLite client
 │   ├── lib/
 │   │   ├── cursor/     Cursor API client: HTTP, rate limiters, window chunking, pagination,
-│   │   │               mock fixtures, typed Admin/Analytics wrappers, and Zod response schemas
+│   │   │               mock fixtures, typed Admin/Analytics/AI-Code wrappers, Zod schemas
 │   │   ├── sync/       Ingestion engine + per-data-type jobs (admin / analytics-team / analytics-by-user)
 │   │   ├── queries/    Server-only read helpers each dashboard page calls
 │   │   ├── agent/      Embedded Ask Agent: @cursor/sdk wrapper + system-prompt + page context

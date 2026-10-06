@@ -102,9 +102,67 @@ export default async function SpendPage({ searchParams }: PageProps) {
         />
       </ChartCard>
 
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Billing groups
+          {data.billingCycleStart ? (
+            <span className="ml-2 font-normal normal-case tracking-normal">
+              cycle starting {data.billingCycleStart}
+            </span>
+          ) : null}
+        </h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard
+            title="Spend by billing group"
+            description="Group spend for the latest billing cycle"
+            isEmpty={data.billingGroups.length === 0}
+            emptyMessage="No billing groups synced yet (Enterprise)."
+          >
+            <SeriesChart
+              data={data.billingGroups.map((g) => ({ key: g.group, value: g.spendCents }))}
+              xKey="key"
+              kind="bar"
+              valueFormat="cents"
+              series={[{ key: "value", label: "Spend" }]}
+            />
+          </ChartCard>
+          <ChartCard
+            title="Daily spend by group"
+            description="Per-group daily spend within the selected range"
+            isEmpty={data.groupSpendByDay.data.length === 0}
+            emptyMessage="No per-group daily spend in this range."
+          >
+            <SeriesChart
+              data={data.groupSpendByDay.data}
+              xKey="date"
+              xFormat="date"
+              kind="stackedBar"
+              valueFormat="cents"
+              series={data.groupSpendByDay.keys.map((key) => ({ key, label: key }))}
+            />
+          </ChartCard>
+        </div>
+        {data.billingGroups.length > 0 ? (
+          <ChartCard title="Groups" description="Members and cycle spend per billing group">
+            <QueryTable
+              rows={data.billingGroups}
+              searchPlaceholder="Search groups…"
+              csvFilename="billing-groups.csv"
+              initialSort={{ key: "spendCents", dir: "desc" }}
+              columns={[
+                { key: "group", header: "Group" },
+                { key: "members", header: "Members", format: "number" },
+                { key: "spendCents", header: "Cycle spend", format: "cents" },
+                { key: "directoryGroupId", header: "Directory group" },
+              ]}
+            />
+          </ChartCard>
+        ) : null}
+      </div>
+
       <ChartCard
         title="Per-user spend & limits"
-        description="Cycle spend alongside each member's monthly and hard limits"
+        description="Cycle spend alongside each member's monthly, hard, and effective limits"
       >
         <QueryTable
           rows={data.perUser}
@@ -119,6 +177,7 @@ export default async function SpendPage({ searchParams }: PageProps) {
             { key: "spendCents", header: "Cycle spend", format: "cents" },
             { key: "monthlyLimitDollars", header: "Monthly limit", format: "dollars" },
             { key: "hardLimitDollars", header: "Hard limit", format: "dollars" },
+            { key: "effectiveLimitDollars", header: "Effective limit", format: "dollars" },
           ]}
         />
       </ChartCard>
