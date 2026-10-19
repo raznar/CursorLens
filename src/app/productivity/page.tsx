@@ -1,11 +1,11 @@
-import { Check, Gauge, Keyboard, Zap } from "lucide-react";
+import { Check, DollarSign, Gauge, Keyboard, Zap } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ChartCard } from "@/components/dashboard/chart-card";
 import { SeriesChart } from "@/components/dashboard/series-chart";
 import { QueryTable, type QueryColumn } from "@/components/dashboard/query-table";
 import { resolveRange } from "@/lib/date-range";
-import { formatCompact, formatPercent } from "@/lib/format";
+import { formatCents, formatCompact, formatPercent } from "@/lib/format";
 import { getProductivity } from "@/lib/queries/productivity";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,13 @@ const LEADERBOARD_COLUMNS: QueryColumn[] = [
   { key: "acceptRatio", header: "Accept %", format: "percent" },
 ];
 
+const COST_COLUMNS = (label: string): QueryColumn[] => [
+  { key: "key", header: label },
+  { key: "acceptedLines", header: "Accepted lines", format: "compact" },
+  { key: "chargedCents", header: "Charged", format: "cents" },
+  { key: "centsPerLine", header: "Cost / line", format: "unitCost" },
+];
+
 export default async function ProductivityPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const range = resolveRange(typeof sp.range === "string" ? sp.range : undefined);
@@ -31,7 +38,7 @@ export default async function ProductivityPage({ searchParams }: PageProps) {
     <>
       <PageHeader
         title="Productivity"
-        description={`Agent edit and Tab acceptance, file extensions, and leaderboards over the ${range.label.toLowerCase()}.`}
+        description={`Agent edit and Tab acceptance, cost per accepted line, file extensions, and leaderboards over the ${range.label.toLowerCase()}.`}
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -59,6 +66,53 @@ export default async function ProductivityPage({ searchParams }: PageProps) {
           icon={<Zap className="h-4 w-4" />}
           footer={range.label}
         />
+        <KpiCard
+          label="Cost per accepted line"
+          value={
+            data.costPerAcceptedLine.centsPerLine == null
+              ? "—"
+              : formatCents(data.costPerAcceptedLine.centsPerLine, { digits: 4 })
+          }
+          icon={<DollarSign className="h-4 w-4" />}
+          footer={
+            data.costPerAcceptedLine.bestModel
+              ? `Best model: ${data.costPerAcceptedLine.bestModel}`
+              : "Charged spend ÷ accepted lines"
+          }
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          title="Cost per accepted line by model"
+          description="Lowest is best. Charged usage for that model ÷ accepted lines that recorded the model. Follows the date range."
+          isEmpty={data.costPerAcceptedLine.byModel.length === 0}
+          emptyMessage="No model-attributed accepted lines in this range."
+        >
+          <QueryTable
+            rows={data.costPerAcceptedLine.byModel}
+            searchPlaceholder="Search models…"
+            csvFilename="cost-per-line-by-model.csv"
+            initialSort={{ key: "centsPerLine", dir: "asc" }}
+            emptyMessage="No model-attributed accepted lines in this range."
+            columns={COST_COLUMNS("Model")}
+          />
+        </ChartCard>
+        <ChartCard
+          title="Cost per accepted line by user"
+          description="Charged usage ÷ every accepted line for that user, including Tab edits with no model."
+          isEmpty={data.costPerAcceptedLine.byUser.length === 0}
+          emptyMessage="No accepted lines in this range."
+        >
+          <QueryTable
+            rows={data.costPerAcceptedLine.byUser}
+            searchPlaceholder="Search users…"
+            csvFilename="cost-per-line-by-user.csv"
+            initialSort={{ key: "centsPerLine", dir: "asc" }}
+            emptyMessage="No accepted lines in this range."
+            columns={COST_COLUMNS("User")}
+          />
+        </ChartCard>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

@@ -19,6 +19,7 @@ describe("formatters", () => {
     expect(formatCents(2450)).toBe("$24.50");
     expect(formatCents(0)).toBe("$0.00");
     expect(formatCents(123456, { compact: true })).toBe("$1.2K");
+    expect(formatCents(0.05, { digits: 4 })).toBe("$0.0005");
   });
 
   it("formats percentages from ratios", () => {

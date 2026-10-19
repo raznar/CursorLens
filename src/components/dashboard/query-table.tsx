@@ -18,6 +18,7 @@ export type CellFormat =
   | "number"
   | "compact"
   | "cents"
+  | "unitCost"
   | "dollars"
   | "percent"
   | "date"
@@ -51,6 +52,7 @@ const NUMERIC: ReadonlySet<CellFormat> = new Set([
   "number",
   "compact",
   "cents",
+  "unitCost",
   "dollars",
   "percent",
 ]);
@@ -64,6 +66,8 @@ function renderCell(format: CellFormat, raw: unknown): React.ReactNode {
       return formatCompact(Number(raw));
     case "cents":
       return formatCents(Number(raw));
+    case "unitCost":
+      return formatCents(Number(raw), { digits: 4 });
     case "dollars":
       return formatDollars(Number(raw));
     case "percent":

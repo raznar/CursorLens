@@ -8,6 +8,7 @@ import { dayFromMs, msBetween } from "./filters";
 import {
   computeDelta,
   groupSum,
+  joinCostPerLine,
   mergeByDate,
   pivotSeries,
   ratio,
@@ -65,6 +66,26 @@ describe("transforms", () => {
     expect(shares.find((s) => s.key === "a")?.share).toBeCloseTo(0.25);
     expect(withShare([{ key: "z", value: 0 }])[0].share).toBe(0);
     expect(withShare([])).toEqual([]);
+  });
+
+  it("joinCostPerLine ranks the lowest cents-per-line first and drops no zero-line keys", () => {
+    const rows = joinCostPerLine(
+      [
+        { key: "opus", value: 100 },
+        { key: "sonnet", value: 50 },
+        { key: "tab", value: 0 },
+      ],
+      [
+        { key: "opus", value: 200 },
+        { key: "sonnet", value: 50 },
+        { key: "gpt", value: 30 },
+      ],
+    );
+    expect(rows.map((row) => row.key)).toEqual(["sonnet", "opus", "gpt", "tab"]);
+    expect(rows[0]).toMatchObject({ acceptedLines: 50, chargedCents: 50, centsPerLine: 1 });
+    expect(rows[1]!.centsPerLine).toBe(2);
+    expect(rows[2]).toMatchObject({ acceptedLines: 0, chargedCents: 30, centsPerLine: null });
+    expect(rows[3]).toMatchObject({ acceptedLines: 0, chargedCents: 0, centsPerLine: null });
   });
 
   it("computeDelta and ratio guard divide-by-zero", () => {

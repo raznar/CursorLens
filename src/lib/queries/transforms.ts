@@ -63,6 +63,55 @@ export function ratio(numerator: number, denominator: number): number | null {
   return numerator / denominator;
 }
 
+export interface CostPerLineRow {
+  key: string;
+  acceptedLines: number;
+  chargedCents: number;
+  /** Charged cents per accepted line. Null when nothing was accepted. */
+  centsPerLine: number | null;
+}
+
+/**
+ * Pair accepted-line totals with charged-cent totals that share a key.
+ * Sorted best-first (lowest cents per line). Rows with no accepted lines sort
+ * last — a missing denominator is not "free". Ties break toward more lines, then key.
+ */
+export function joinCostPerLine(
+  lines: readonly KeyValue[],
+  costs: readonly KeyValue[],
+): CostPerLineRow[] {
+  const costByKey = new Map(costs.map((row) => [row.key, row.value]));
+  const seen = new Set<string>();
+  const rows: CostPerLineRow[] = [];
+  for (const line of lines) {
+    seen.add(line.key);
+    const chargedCents = costByKey.get(line.key) ?? 0;
+    rows.push({
+      key: line.key,
+      acceptedLines: line.value,
+      chargedCents,
+      centsPerLine: ratio(chargedCents, line.value),
+    });
+  }
+  for (const cost of costs) {
+    if (seen.has(cost.key)) continue;
+    rows.push({
+      key: cost.key,
+      acceptedLines: 0,
+      chargedCents: cost.value,
+      centsPerLine: null,
+    });
+  }
+  return rows.sort((a, b) => {
+    if (a.centsPerLine == null && b.centsPerLine == null) return a.key.localeCompare(b.key);
+    if (a.centsPerLine == null) return 1;
+    if (b.centsPerLine == null) return -1;
+    if (a.centsPerLine !== b.centsPerLine) return a.centsPerLine - b.centsPerLine;
+    if (a.acceptedLines !== b.acceptedLines) return b.acceptedLines - a.acceptedLines;
+    return a.key.localeCompare(b.key);
+  });
+}
+
 export interface PivotOptions<T> {
   date: (row: T) => string;
   series: (row: T) => string;
