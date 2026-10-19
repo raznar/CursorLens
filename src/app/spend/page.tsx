@@ -168,13 +168,13 @@ export default async function SpendPage({ searchParams }: PageProps) {
           rows={data.perUser}
           searchPlaceholder="Search members…"
           csvFilename="user-spend.csv"
-          initialSort={{ key: "overallSpendCents", dir: "desc" }}
+          initialSort={{ key: "cycleSpendCents", dir: "desc" }}
           emptyMessage="No spend data yet."
           columns={[
             { key: "user", header: "User" },
             { key: "role", header: "Role" },
-            { key: "overallSpendCents", header: "Overall spend", format: "cents" },
-            { key: "spendCents", header: "Cycle spend", format: "cents" },
+            { key: "cycleSpendCents", header: "Cycle spend", format: "cents" },
+            { key: "spendCents", header: "On-demand", format: "cents" },
             { key: "monthlyLimitDollars", header: "Monthly limit", format: "dollars" },
             { key: "hardLimitDollars", header: "Hard limit", format: "dollars" },
             { key: "effectiveLimitDollars", header: "Effective limit", format: "dollars" },

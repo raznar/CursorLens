@@ -18,6 +18,23 @@ function num(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * Current-cycle spend in cents.
+ *
+ * `overallCents` is the cycle total (included usage + on-demand). `onDemandCents`
+ * (`spendCents` on `/teams/spend`) excludes included usage and is 0 while a member is
+ * still inside the plan — showing that field as "cycle spend" reads as $0 on Enterprise.
+ * Payloads from before `overallSpendCents` existed only populate on-demand.
+ */
+export function cycleSpendCents(
+  onDemandCents: number | null | undefined,
+  overallCents: number | null | undefined,
+): number {
+  const overall = num(overallCents);
+  if (overall > 0) return overall;
+  return num(onDemandCents);
+}
+
 /** Sum a numeric projection over rows, ignoring null/NaN. */
 export function sumBy<T>(rows: readonly T[], get: (row: T) => number | null | undefined): number {
   let total = 0;

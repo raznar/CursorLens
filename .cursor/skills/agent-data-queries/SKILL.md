@@ -64,7 +64,9 @@ column reference. After any schema change, regenerate it (the `verify` gate enfo
   `'2024-03-18'`: compare with `date('now', '-N days')`.
 - **Money** — integer columns are whole **cents**; `requests_costs`, `total_cents`,
   `charged_cents`, `cursor_token_fee`, and `spend.spend_cents` / `overall_spend_cents` are
-  `real` cents. Divide by 100 for dollars and round.
+  `real` cents. Divide by 100 for dollars and round. Cycle spend is `overall_spend_cents`
+  when positive; `spend_cents` is on-demand only (often 0 on Enterprise) and is the fallback
+  when the cycle total is missing.
 - **Booleans** are 0/1 integers.
 - **AI-written code** — `ai_code_commits` (per commit: `tab_lines_added`,
   `composer_lines_added`, `non_ai_lines_added`, `commit_day`, `repo_name`, `commit_source`);

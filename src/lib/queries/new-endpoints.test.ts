@@ -94,6 +94,9 @@ describe("getSpend billing groups", () => {
     );
     expect(data.groupSpendByDay.keys.length).toBeGreaterThan(0);
     expect(data.perUser[0]).toHaveProperty("effectiveLimitDollars");
+    const onDemand = data.perUser.reduce((sum, row) => sum + row.spendCents, 0);
+    expect(data.totalSpendCents).toBeGreaterThan(onDemand);
+    expect(data.perUser.every((row) => row.cycleSpendCents === row.overallSpendCents)).toBe(true);
   });
 });
 

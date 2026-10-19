@@ -57,6 +57,8 @@ export interface RequestSpec<T> {
   body?: unknown;
   /** ETag to send as `If-None-Match`; a matching response yields `notModified: true`. */
   etag?: string;
+  /** Fetch cache mode. Spend uses `no-store` so a cache cannot answer the cycle snapshot with 304. */
+  cache?: RequestCache;
 }
 
 export interface ApiResult<T> {
@@ -157,6 +159,7 @@ export class CursorHttp {
       method: spec.method,
       headers,
       body: spec.body !== undefined ? JSON.stringify(spec.body) : undefined,
+      cache: spec.cache,
     };
 
     for (let attempt = 0; ; attempt++) {
@@ -178,7 +181,13 @@ export class CursorHttp {
       }
 
       if (response.status === 304) {
-        return { data: null, notModified: true, status: 304, etag: spec.etag };
+        this.log.debug({ url, status: response.status }, "304 Not Modified");
+        return {
+          data: null,
+          notModified: true,
+          status: 304,
+          etag: response.headers.get("etag") ?? spec.etag,
+        };
       }
 
       if (response.status === 429) {

@@ -2,7 +2,7 @@ import "server-only";
 import { desc, eq, sql } from "drizzle-orm";
 import { billingGroupDailySpend, billingGroups, dailyUsage, db, spend } from "@/db";
 import { dayBetween, type Range } from "./filters";
-import { type KeyValue, type SeriesRow, pivotSeries, topN } from "./transforms";
+import { cycleSpendCents, type KeyValue, type SeriesRow, pivotSeries, topN } from "./transforms";
 import { whenCacheReadable } from "./cache-guard";
 import { spendByDay } from "./usage";
 
@@ -24,8 +24,11 @@ const EMPTY_SPEND: SpendData = {
 export interface SpendUserRow {
   user: string;
   role: string | null;
+  /** On-demand spend only. 0 while usage is still included in the plan. */
   spendCents: number;
   overallSpendCents: number;
+  /** Cycle total shown on the Spend page. See {@link cycleSpendCents}. */
+  cycleSpendCents: number;
   monthlyLimitDollars: number | null;
   effectiveLimitDollars: number | null;
   hardLimitDollars: number | null;
@@ -90,15 +93,16 @@ function getSpendLoaded(range: Range): SpendData {
     role: r.role,
     spendCents: r.spendCents,
     overallSpendCents: r.overallSpendCents,
+    cycleSpendCents: cycleSpendCents(r.spendCents, r.overallSpendCents),
     monthlyLimitDollars: r.monthlyLimitDollars,
     effectiveLimitDollars: r.effectiveLimitDollars,
     hardLimitDollars: r.hardLimitDollars,
   }));
 
-  const totalSpendCents = perUser.reduce((sum, r) => sum + r.overallSpendCents, 0);
-  const payingMembers = perUser.filter((r) => r.overallSpendCents > 0).length;
+  const totalSpendCents = perUser.reduce((sum, r) => sum + r.cycleSpendCents, 0);
+  const payingMembers = perUser.filter((r) => r.cycleSpendCents > 0).length;
   const topSpenders = topN(
-    perUser.map((r) => ({ key: r.user, value: r.overallSpendCents })),
+    perUser.map((r) => ({ key: r.user, value: r.cycleSpendCents })),
     10,
   );
 

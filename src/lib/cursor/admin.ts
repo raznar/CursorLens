@@ -56,28 +56,40 @@ export async function getMembers(http: CursorHttp): Promise<TeamMember[]> {
 export interface SpendResult {
   rows: SpendRow[];
   subscriptionCycleStart?: number;
+  /** True when `/teams/spend` returned 304. `rows` is empty — keep the stored snapshot. */
+  notModified?: boolean;
 }
 
 export async function getSpend(http: CursorHttp, pageSize = SPEND_PAGE_SIZE): Promise<SpendResult> {
   let subscriptionCycleStart: number | undefined;
+  let notModified = false;
   const rows = await collectPages({
     fetchPage: async (page) => {
       const res = await http.request({
         method: "POST",
         path: "/teams/spend",
         group: "adminSpend",
+        // Cycle spend changes every day. A cached 304 has no body; bypass the HTTP cache
+        // so the snapshot is not stuck at the last (often empty) response.
+        cache: "no-store",
         body: { page, pageSize, sortBy: "amount", sortDirection: "desc" },
         schema: SpendResponseSchema,
       });
-      return res.data!;
+      if (res.notModified || res.data == null) {
+        notModified = true;
+        return { teamMemberSpend: [], totalPages: 1 };
+      }
+      return res.data;
     },
     getItems: (d) => {
+      if (notModified) return [];
       subscriptionCycleStart = d.subscriptionCycleStart ?? subscriptionCycleStart;
       return d.teamMemberSpend;
     },
     getPagination: (d) => ({ totalPages: d.totalPages ?? undefined }),
     pageSize,
   });
+  if (notModified) return { rows: [], notModified: true };
   return { rows, subscriptionCycleStart };
 }
 

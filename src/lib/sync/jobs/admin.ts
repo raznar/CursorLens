@@ -44,7 +44,10 @@ export const spendJob: SyncJob = {
   metricId: "spend",
   label: "Spend",
   run: async (ctx) => {
-    const { rows: spendRows, subscriptionCycleStart } = await ctx.client.admin.spend();
+    const { rows: spendRows, subscriptionCycleStart, notModified } = await ctx.client.admin.spend();
+    // 304 has no body. Upserting nothing would leave an empty table looking like $0 cycle
+    // spend after a cache clear; skip the write and keep the last snapshot.
+    if (notModified) return { rows: 0, notModified: true };
     const rows = spendRows.map((s) => ({
       user_id: String(s.userId),
       name: s.name ?? null,
