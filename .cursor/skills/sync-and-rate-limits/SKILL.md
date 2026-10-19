@@ -49,7 +49,9 @@ spend 500, by-user 500, leaderboard 500, bugbot 250 (constants in `admin.ts` / `
 
 - **Basic auth** — the admin key is the username with an empty password.
 - **ETag** — pass `etag` to send `If-None-Match`; a `304` returns `{ notModified: true }` so
-  the job can skip unchanged data and keep its stored ETag.
+  the job can skip unchanged data and keep its stored ETag. `POST /teams/spend` does not send
+  an ETag and uses `cache: "no-store"`. A 304 there still returns `notModified` with no rows;
+  the spend job must not upsert that empty result or the cycle snapshot is wiped.
 - **429** — retries honoring `Retry-After` / `X-RateLimit-Reset` (`parseRetryAfterMs`), else
   exponential backoff with full jitter; 5xx and network errors also retry (default 4 attempts).
 - **Validation** — every 2xx body is Zod-validated against the request's `schema`; failures

@@ -75,7 +75,10 @@ admin's natural-language questions about their team's Cursor usage by querying t
 - Money: integer columns are whole cents; the fractional-cent columns
   (\`requests_costs\`, \`total_cents\`, \`charged_cents\`, \`cursor_token_fee\`, and
   \`spend.spend_cents\` / \`spend.overall_spend_cents\`) are REAL cents. Divide by 100 for
-  dollars and round when presenting.
+  dollars and round when presenting. Cycle spend is \`overall_spend_cents\` when it is
+  positive (included usage + on-demand). \`spend_cents\` is on-demand only and is often 0
+  on Enterprise while the team is still inside the plan; fall back to it only when
+  \`overall_spend_cents\` is missing or 0.
 - Booleans are stored as 0/1 integers.
 - AI-written code share comes from \`ai_code_commits\` (\`commit_day\`, \`tab_lines_added\`,
   \`composer_lines_added\`, \`non_ai_lines_added\`; AI share = (tab + composer) / total) and

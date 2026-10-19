@@ -7,6 +7,7 @@ import { usageEvents } from "@/db/schema";
 import { dayFromMs, msBetween } from "./filters";
 import {
   computeDelta,
+  cycleSpendCents,
   groupSum,
   mergeByDate,
   pivotSeries,
@@ -28,6 +29,18 @@ const modelRows: ModelRow[] = [
   { date: "2024-03-02", model: "opus", messages: 20 },
   { date: "2024-03-02", model: "gpt", messages: 5 },
 ];
+
+describe("cycleSpendCents", () => {
+  it("uses the cycle total when on-demand spend is zero", () => {
+    expect(cycleSpendCents(0, 860)).toBe(860);
+  });
+
+  it("falls back to on-demand when the cycle total is missing", () => {
+    expect(cycleSpendCents(2450.125487, null)).toBeCloseTo(2450.125487, 6);
+    expect(cycleSpendCents(0, 0)).toBe(0);
+    expect(cycleSpendCents(undefined, undefined)).toBe(0);
+  });
+});
 
 describe("transforms", () => {
   it("sumBy ignores null/NaN values", () => {

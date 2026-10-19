@@ -63,6 +63,10 @@ section's metrics (e.g. `/ai-code` → `"ai-code"`).
 Query helpers for DB-backed pages are tested against a temp SQLite file filled by a mock
 backfill, with the live-cache guard mocked out — see `src/lib/queries/new-endpoints.test.ts`.
 
+The Spend page's "Cycle spend" KPI and column use `cycleSpendCents` (`src/lib/queries/transforms.ts`):
+`overall_spend_cents` when it is positive, otherwise on-demand `spend_cents`. Do not label
+`spend_cents` as cycle spend — on Enterprise that field is 0 while usage is still included.
+
 ## 4–5. Finalize
 
 If the page surfaces a registry metric, make sure that metric's `section` matches the page (see
