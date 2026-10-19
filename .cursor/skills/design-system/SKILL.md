@@ -30,7 +30,8 @@ inline hex or arbitrary HSL. Theme is toggled by `src/components/theme-provider.
   to merge classes.
 - Domain components in `src/components/dashboard/`: `KpiCard` (`kpi-card.tsx`),
   `ChartCard` (`chart-card.tsx`, titled shell with a built-in empty state),
-  `DataTable`/`QueryTable` (`data-table.tsx` / `query-table.tsx`, sort/search/paginate/CSV),
+  `DataTable`/`QueryTable` (`data-table.tsx` / `query-table.tsx`, sort/search/paginate/CSV;
+  cell format `unitCost` is `formatCents` with 4 decimal dollars),
   `DateRangePicker` (`date-range-picker.tsx`), `TrendBadge` (`trend-badge.tsx`),
   `EmptyState` (`empty-state.tsx`), `SyncStatusBadge` (`sync-status-badge.tsx`).
 - Layout/nav in `src/components/layout/` — register pages in `src/components/layout/nav-items.ts`.
@@ -65,7 +66,8 @@ one-off chart components.
 Keep units consistent everywhere:
 
 - `formatNumber` / `formatCompact` (1.2K, 3.4M)
-- `formatCents` (integer cents → USD), `formatDollars`
+- `formatCents` (cents → USD; optional `digits` for sub-cent amounts such as cost per line),
+  `formatDollars`
 - `formatPercent` (ratio in [0,1] → "22.6%")
 - `formatDate` / `formatRelative`, `formatTokens`
 - `formatValue(format, value)` dispatches by the registry's `ValueFormat`

@@ -82,6 +82,14 @@ admin's natural-language questions about their team's Cursor usage by querying t
   accepted AI edits from \`ai_code_changes\` (+ \`ai_code_change_files\` per file/extension).
   \`usage_events.conversation_id\` joins agent sessions to spend; \`cloud_agent_id\` /
   \`automation_id\` attribute spend to cloud agents and automations.
+- Cost per accepted line: accepted lines are \`ai_code_changes.total_lines_added\`
+  (\`created_day\`, \`user_email\`, \`model\`). Cost is \`sum(usage_events.charged_cents)\`
+  over the same window (\`timestamp\` is epoch ms). Divide the sums — do not average
+  ratios. Dollars per line = charged_cents / accepted_lines / 100. The best model is
+  the lowest ratio among models with accepted_lines > 0 and a non-empty \`model\`
+  (null-model rows are Tab accepts: keep them in the team and per-user totals, leave
+  them out of the model ranking). Per user, divide that user's charged cents by all
+  of their accepted lines.
 - BugBot cost and findings: \`analytics_bugbot_reviews\` (\`cost_cents\`, \`dry_run\`) joined to
   \`analytics_bugbot_review_findings\` on \`request_id\` (\`severity\`, \`resolution_status\`).
 - Spend by team: \`billing_groups\` (one row per group per \`cycle_start\`; latest cycle =

@@ -48,13 +48,29 @@ export function formatCompact(value: number): string {
   return formatNumber(value, { compact: true });
 }
 
-/** Cents (integer) -> localized USD. */
-export function formatCents(cents: number, opts: { compact?: boolean } = {}): string {
+/**
+ * Cents -> localized USD. `digits` is the max fraction digits on the dollar
+ * amount (default 2). Per-line costs are often fractions of a cent, so callers
+ * pass a higher `digits` instead of inventing a second money formatter.
+ */
+export function formatCents(
+  cents: number,
+  opts: { compact?: boolean; digits?: number } = {},
+): string {
+  if (opts.compact) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(cents / 100);
+  }
+  const digits = opts.digits ?? 2;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    notation: opts.compact ? "compact" : "standard",
-    maximumFractionDigits: opts.compact ? 1 : 2,
+    minimumFractionDigits: Math.min(2, digits),
+    maximumFractionDigits: digits,
   }).format(cents / 100);
 }
 

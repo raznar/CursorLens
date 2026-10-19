@@ -71,6 +71,14 @@ column reference. After any schema change, regenerate it (the `verify` gate enfo
   AI share = (tab + composer) / total. Accepted AI edits: `ai_code_changes` +
   `ai_code_change_files`. `usage_events.conversation_id` is the join key to agent sessions;
   `cloud_agent_id` / `automation_id` attribute spend to cloud agents / automations.
+- **Cost per accepted line** — accepted lines are `ai_code_changes.total_lines_added`
+  (`created_day`, `user_email`, `model`). Cost is `sum(usage_events.charged_cents)` over
+  the same window (`timestamp` is epoch ms). Divide the sums; do not average ratios.
+  Dollars per line = charged_cents / accepted_lines / 100. The best model is the lowest
+  ratio among models with accepted_lines > 0 and a non-empty `model` (null-model rows are
+  Tab accepts: keep them in team and per-user totals, leave them out of the model ranking).
+  Per user, divide that user's charged cents by all of their accepted lines. Changes do not
+  store `conversation_id`, so the match is user + model + window.
 - **BugBot cost** — `analytics_bugbot_reviews.cost_cents` (+ `dry_run`), findings in
   `analytics_bugbot_review_findings` joined on `request_id`.
 - **Groups** — `billing_groups` is per group **per `cycle_start`** (latest = `max(cycle_start)`)

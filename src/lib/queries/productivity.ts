@@ -1,15 +1,27 @@
 import "server-only";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import {
+  aiCodeChanges,
   analyticsAgentEdits,
   analyticsLeaderboard,
   analyticsTabs,
   analyticsTopFileExtensions,
   db,
+  usageEvents,
 } from "@/db";
-import { dayBetween, type Range } from "./filters";
+import { dayBetween, msBetween, type Range } from "./filters";
 import { whenCacheReadable } from "./cache-guard";
-import { type KeyValue, ratio, sumBy } from "./transforms";
+import { joinCostPerLine, type CostPerLineRow, type KeyValue, ratio, sumBy } from "./transforms";
+
+const EMPTY_COST: CostPerAcceptedLine = {
+  centsPerLine: null,
+  acceptedLines: 0,
+  chargedCents: 0,
+  bestModel: null,
+  byUser: [],
+  byModel: [],
+};
 
 const EMPTY_PRODUCTIVITY: ProductivityData = {
   agentEdits: [],
@@ -21,6 +33,7 @@ const EMPTY_PRODUCTIVITY: ProductivityData = {
   topExtensions: [],
   agentLeaderboard: [],
   tabLeaderboard: [],
+  costPerAcceptedLine: EMPTY_COST,
 };
 
 export interface AgentEditPoint {
@@ -46,6 +59,17 @@ export interface LeaderboardRow {
   lineAcceptanceRatio: number | null;
 }
 
+export interface CostPerAcceptedLine {
+  /** Team charged cents / all accepted lines in the window. Null when no lines were accepted. */
+  centsPerLine: number | null;
+  acceptedLines: number;
+  chargedCents: number;
+  /** Lowest cents-per-line model that accepted at least one line. */
+  bestModel: string | null;
+  byUser: CostPerLineRow[];
+  byModel: CostPerLineRow[];
+}
+
 export interface ProductivityData {
   agentEdits: AgentEditPoint[];
   tabs: TabPoint[];
@@ -56,6 +80,12 @@ export interface ProductivityData {
   topExtensions: KeyValue[];
   agentLeaderboard: LeaderboardRow[];
   tabLeaderboard: LeaderboardRow[];
+  costPerAcceptedLine: CostPerAcceptedLine;
+}
+
+/** Blank model/email become "unknown" so SQLite doesn't drop them from GROUP BY. */
+function labelKey(col: AnySQLiteColumn): SQL<string> {
+  return sql<string>`coalesce(nullif(${col}, ''), 'unknown')`;
 }
 
 function leaderboard(board: "tab" | "agent"): LeaderboardRow[] {
@@ -131,5 +161,81 @@ function getProductivityLoaded(range: Range): ProductivityData {
     topExtensions,
     agentLeaderboard: leaderboard("agent"),
     tabLeaderboard: leaderboard("tab"),
+    costPerAcceptedLine: costPerAcceptedLine(range),
   };
+}
+
+/**
+ * Charged usage divided by accepted AI lines in the same window.
+ * Changes don't carry conversation_id, so spend matches on user email + model
+ * rather than per edit. Null-model rows are Tab accepts: they count for the
+ * team and the user, and they are left out of the model ranking so an
+ * unattributed bucket can't win as "free".
+ */
+function costPerAcceptedLine(range: Range): CostPerAcceptedLine {
+  const [lineTotal] = db
+    .select({
+      lines: sql<number>`coalesce(sum(${aiCodeChanges.total_lines_added}), 0)`,
+    })
+    .from(aiCodeChanges)
+    .where(dayBetween(aiCodeChanges.created_day, range))
+    .all();
+  const [costTotal] = db
+    .select({
+      cents: sql<number>`coalesce(sum(${usageEvents.charged_cents}), 0)`,
+    })
+    .from(usageEvents)
+    .where(msBetween(usageEvents.timestamp, range))
+    .all();
+
+  const acceptedLines = lineTotal?.lines ?? 0;
+  const chargedCents = costTotal?.cents ?? 0;
+
+  const userLines = groupedLines(labelKey(aiCodeChanges.user_email), range);
+  const userCosts = groupedCosts(labelKey(usageEvents.user_email), range);
+  const modelLines = groupedLines(labelKey(aiCodeChanges.model), range, true);
+  const modelCosts = groupedCosts(labelKey(usageEvents.model), range);
+
+  const byUser = withLines(joinCostPerLine(userLines, userCosts));
+  const byModel = withLines(joinCostPerLine(modelLines, modelCosts));
+
+  return {
+    centsPerLine: ratio(chargedCents, acceptedLines),
+    acceptedLines,
+    chargedCents,
+    bestModel: byModel[0]?.key ?? null,
+    byUser,
+    byModel,
+  };
+}
+
+function withLines(rows: CostPerLineRow[]): CostPerLineRow[] {
+  return rows.filter((row) => row.acceptedLines > 0);
+}
+
+function groupedLines(key: SQL<string>, range: Range, requireModel = false): KeyValue[] {
+  const window = dayBetween(aiCodeChanges.created_day, range);
+  return db
+    .select({
+      key,
+      value: sql<number>`coalesce(sum(${aiCodeChanges.total_lines_added}), 0)`,
+    })
+    .from(aiCodeChanges)
+    .where(
+      requireModel ? and(window, sql`nullif(${aiCodeChanges.model}, '') is not null`) : window,
+    )
+    .groupBy(key)
+    .all();
+}
+
+function groupedCosts(key: SQL<string>, range: Range): KeyValue[] {
+  return db
+    .select({
+      key,
+      value: sql<number>`coalesce(sum(${usageEvents.charged_cents}), 0)`,
+    })
+    .from(usageEvents)
+    .where(msBetween(usageEvents.timestamp, range))
+    .groupBy(key)
+    .all();
 }

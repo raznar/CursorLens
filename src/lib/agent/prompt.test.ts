@@ -21,6 +21,8 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/SELECT/);
     expect(prompt.toLowerCase()).toContain("opus");
     expect(prompt.toLowerCase()).toContain("read-only");
+    expect(prompt.toLowerCase()).toContain("cost per accepted line");
+    expect(prompt).toContain("ai_code_changes.total_lines_added");
   });
 
   it("uses injected schema markdown when provided (no disk read)", () => {

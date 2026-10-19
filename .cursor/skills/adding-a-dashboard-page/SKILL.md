@@ -62,6 +62,12 @@ section's metrics (e.g. `/ai-code` → `"ai-code"`).
 
 Query helpers for DB-backed pages are tested against a temp SQLite file filled by a mock
 backfill, with the live-cache guard mocked out — see `src/lib/queries/new-endpoints.test.ts`.
+A derived metric that only joins tables already in the cache (no new Cursor endpoint) still
+follows steps 1, 2, and 5. Productivity's cost per accepted line is that case:
+`getProductivity` divides `usage_events.charged_cents` by `ai_code_changes.total_lines_added`
+for the active range (`src/lib/queries/productivity.ts`). The Ask Agent formula is in
+`agent-data-queries`. Hand-inserted rows (`src/lib/queries/productivity.test.ts`) cover the
+join when mock sync would make the expected numbers opaque.
 
 ## 4–5. Finalize
 
